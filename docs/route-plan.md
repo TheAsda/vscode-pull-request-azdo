@@ -35,6 +35,7 @@ Rules: views/webviews and git plumbing are adopted, not forked; our code lives i
 
 ### Build/config divergence from upstream
 
+- **Package manager**: upstream moved to npm (`package-lock.json`, CI runs `npm ci`); yarn is no longer usable here — S0 verify is `npm ci && npm run compile`, not `yarn && yarn compile`.
 - `package.json`: identity, `enabledApiProposals` trimmed, `azure-devops-node-api` dependency added.
 - Webpack (3-target node/webworker/webviews): unchanged unless the SDK needs a tweak.
 - CI: upstream's Azure Pipelines dropped; GitHub Actions added (build + `vsce package` → artifact; tag `v*` → Release).
