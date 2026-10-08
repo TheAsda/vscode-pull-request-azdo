@@ -7,6 +7,8 @@ import { GitPullRequestSearchCriteria, PullRequestStatus } from 'azure-devops-no
 import * as vscode from 'vscode';
 import { AzdoRepository } from './azdoRepository';
 import { AzdoCredentialStore } from './credentials';
+import { AzdoPullRequestGitHelper, AzdoRemoteEntry } from './pullRequestGitHelper';
+import { AzdoPullRequestModel } from './pullRequestModel';
 import { AzdoRemoteInfo, parseAzdoRemoteUrl } from './remote';
 import { Repository } from '../api/api';
 import { GitApiImpl } from '../api/api1';
@@ -18,6 +20,7 @@ import { ITelemetry } from '../common/telemetry';
 import { CredentialStore } from '../github/credentials';
 import { FolderRepositoryManager, ReposManagerState } from '../github/folderRepositoryManager';
 import { GitHubRepository, PullRequestData } from '../github/githubRepository';
+import { PullRequestGitHelper } from '../github/pullRequestGitHelper';
 import { PullRequestModel } from '../github/pullRequestModel';
 import { IThemeWatcher } from '../themeWatcher';
 import { CreatePullRequestHelper } from '../view/createPullRequestHelper';
@@ -241,7 +244,98 @@ export class AzdoFolderRepositoryManager extends FolderRepositoryManager {
 		if (this._azdoRemoteInfos.length === 0) {
 			return super.getLocalPullRequests();
 		}
-		// Local PR branch association lands with the checkout slice.
-		return [];
+
+		if (!this.repository.getRefs) {
+			return [];
+		}
+
+		const localBranches = (await this.repository.getRefs({ pattern: 'refs/heads/' }))
+			.filter(ref => ref.name !== undefined)
+			.map(ref => ref.name!);
+
+		const models = await Promise.all(localBranches.map(async localBranchName => {
+			const metadata = await PullRequestGitHelper.getMatchingPullRequestMetadataForBranch(this.repository, localBranchName);
+			if (!metadata) {
+				return undefined;
+			}
+			const azdoRepository = this.findAzdoRepository(metadata.owner, metadata.repositoryName);
+			if (!azdoRepository) {
+				return undefined;
+			}
+			const pullRequest = await azdoRepository.getPullRequest(metadata.prNumber, 'AzdoFolderRepositoryManager.getLocalPullRequests');
+			if (pullRequest) {
+				pullRequest.localBranchName = localBranchName;
+			}
+			return pullRequest;
+		}));
+
+		return models.filter((model): model is PullRequestModel => model !== undefined);
+	}
+
+	/**
+	 * Resolves a pull request by organization and repository name. The base implementation
+	 * matches remotes through the GitHub-flavoured `owner` (which is `_git` for AzDO URLs),
+	 * so AzDO repositories are matched through their parsed remote info instead.
+	 */
+	override async resolvePullRequest(
+		owner: string,
+		repositoryName: string,
+		pullRequestNumber: number,
+		useCache: boolean = false,
+		loadMode: 'default' | 'overview' = 'default',
+	): Promise<PullRequestModel | undefined> {
+		const azdoRepository = this.findAzdoRepository(owner, repositoryName);
+		if (!azdoRepository) {
+			return super.resolvePullRequest(owner, repositoryName, pullRequestNumber, useCache, loadMode);
+		}
+		return azdoRepository.getPullRequest(pullRequestNumber, 'AzdoFolderRepositoryManager.resolvePullRequest', useCache);
+	}
+
+	private findAzdoRepository(owner: string, repositoryName: string): AzdoRepository | undefined {
+		const repository = this._githubRepositories.find(
+			repo => repo instanceof AzdoRepository
+				&& repo.azdoRemoteInfo.org.toLowerCase() === owner.toLowerCase()
+				&& repo.azdoRemoteInfo.repositoryName.toLowerCase() === repositoryName.toLowerCase()) as AzdoRepository | undefined;
+		return repository;
+	}
+
+	override async fetchAndCheckout(pullRequest: PullRequestModel, progress: vscode.Progress<{ message?: string; increment?: number }>): Promise<void> {
+		if (!(pullRequest instanceof AzdoPullRequestModel) || this._azdoRemoteInfos.length === 0) {
+			return super.fetchAndCheckout(pullRequest, progress);
+		}
+
+		const azdoRemotes: AzdoRemoteEntry[] = (await this.getAzdoRemotes()).map(entry => ({
+			remoteName: entry.remote.remoteName,
+			info: entry.info,
+		}));
+		await AzdoPullRequestGitHelper.fetchAndCheckout(this.repository, azdoRemotes, pullRequest, progress);
+	}
+
+	/**
+	 * The AzDO REST item already carries all the head/base metadata; the GraphQL enrichment
+	 * of the base class is replaced with a REST refresh when the model is missing data.
+	 */
+	override async fulfillPullRequestMissingInfo(pullRequest: PullRequestModel): Promise<void> {
+		if (!(pullRequest instanceof AzdoPullRequestModel)) {
+			return super.fulfillPullRequestMissingInfo(pullRequest);
+		}
+
+		if (!pullRequest.head?.sha) {
+			try {
+				const azdoRepository = pullRequest.githubRepository;
+				if (azdoRepository instanceof AzdoRepository) {
+					const refreshed = await azdoRepository.getAzdoPullRequest(pullRequest.number);
+					if (refreshed) {
+						azdoRepository.createOrUpdateAzdoModel(refreshed);
+					}
+				}
+			} catch (e) {
+				Logger.error(`Failed to refresh AzDO pull request ${pullRequest.number}: ${e instanceof Error ? e.message : String(e)}`, 'AzdoFolderRepositoryManager');
+			}
+		}
+
+		if (!pullRequest.mergeBase) {
+			pullRequest.mergeBase = pullRequest.azdoItem.lastMergeTargetCommit?.commitId ?? pullRequest.base?.sha;
+		}
 	}
 }

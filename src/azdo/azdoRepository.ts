@@ -17,6 +17,7 @@ import { GitHubRemote } from '../common/remote';
 import { ITelemetry } from '../common/telemetry';
 import { CredentialStore } from '../github/credentials';
 import { GitHubRepository, PullRequestData } from '../github/githubRepository';
+import type { PullRequestModel } from '../github/pullRequestModel';
 
 export const AZDO_PR_PAGE_SIZE = 25;
 
@@ -159,6 +160,51 @@ export class AzdoRepository extends GitHubRepository {
 			this._azdoModels.set(number, model);
 		}
 		return model;
+	}
+
+	/**
+	 * Resolves a single pull request by id through the AzDO REST API, reusing the
+	 * model cache. Mirrors `GitHubRepository.getPullRequest` for callers such as
+	 * `FolderRepositoryManager.getLocalPullRequests` and `resolvePullRequest`.
+	 */
+	override async getPullRequest(id: number, _callerName: string, useCache: boolean = false): Promise<PullRequestModel | undefined> {
+		if (useCache) {
+			const cached = this._azdoModels.get(id);
+			if (cached) {
+				return cached;
+			}
+		}
+		try {
+			const azdoItem = await this.getAzdoPullRequest(id);
+			if (!azdoItem) {
+				return undefined;
+			}
+			return this.createOrUpdateAzdoModel(azdoItem);
+		} catch (error) {
+			if (error instanceof AuthenticationError) {
+				throw error;
+			}
+			Logger.error(`Failed to resolve AzDO pull request ${id}: ${error instanceof Error ? error.message : String(error)}`, 'AzdoRepository');
+			return undefined;
+		}
+	}
+
+	/**
+	 * Fetches the pull request with the given id as a raw AzDO item without touching the
+	 * model cache. Returns `undefined` when the pull request cannot be found.
+	 */
+	public async getAzdoPullRequest(id: number): Promise<GitPullRequest | undefined> {
+		try {
+			const connection = await this.getAzdoConnection();
+			const gitApi = await connection.api.getGitApi();
+			return await gitApi.getPullRequestById(id, this.azdoRemoteInfo.project);
+		} catch (error) {
+			if (error instanceof AuthenticationError) {
+				throw error;
+			}
+			Logger.error(`Failed to fetch AzDO pull request ${id}: ${error instanceof Error ? error.message : String(error)}`, 'AzdoRepository');
+			return undefined;
+		}
 	}
 
 	override async resolveRemote(): Promise<boolean> {
