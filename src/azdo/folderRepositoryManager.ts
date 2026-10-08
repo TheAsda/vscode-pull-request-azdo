@@ -12,7 +12,7 @@ import { AzdoPullRequestGitHelper, AzdoRemoteEntry } from './pullRequestGitHelpe
 import { AzdoPullRequestModel } from './pullRequestModel';
 import { applyAzdoConfigOverrides, AzdoRemoteInfo, parseAzdoRemoteUrl } from './remote';
 import { convertIdentityRefToAccount } from './utils';
-import { Repository } from '../api/api';
+import { Branch, Repository } from '../api/api';
 import { GitApiImpl } from '../api/api1';
 import { GitHubServerType } from '../common/authentication';
 import Logger from '../common/logger';
@@ -23,7 +23,7 @@ import { CredentialStore } from '../github/credentials';
 import { FolderRepositoryManager, ReposManagerState } from '../github/folderRepositoryManager';
 import { GitHubRepository, PullRequestData } from '../github/githubRepository';
 import { IAccount } from '../github/interface';
-import { PullRequestGitHelper } from '../github/pullRequestGitHelper';
+import { PullRequestGitHelper, PullRequestMetadata } from '../github/pullRequestGitHelper';
 import { PullRequestModel } from '../github/pullRequestModel';
 import { IThemeWatcher } from '../themeWatcher';
 import { CreatePullRequestHelper } from '../view/createPullRequestHelper';
@@ -327,6 +327,56 @@ export class AzdoFolderRepositoryManager extends FolderRepositoryManager {
 				&& repo.azdoRemoteInfo.org.toLowerCase() === owner.toLowerCase()
 				&& repo.azdoRemoteInfo.repositoryName.toLowerCase() === repositoryName.toLowerCase()) as AzdoRepository | undefined;
 		return repository;
+	}
+
+	/**
+	 * The base implementation enriches candidates through the GraphQL `hub`, which is inert
+	 * for AzDO repositories (it throws `Call ensure() before accessing this property.`).
+	 * AzDO branches are matched with a REST query on the pull-request source ref instead.
+	 */
+	override async getMatchingPullRequestMetadataFromGitHub(branch: Branch, remoteName?: string, remoteUrl?: string, upstreamBranchName?: string): Promise<
+		(PullRequestMetadata & { model: PullRequestModel }) | null
+	> {
+		const azdoRepositories = this._githubRepositories.filter((repo): repo is AzdoRepository => repo instanceof AzdoRepository);
+		if (azdoRepositories.length === 0) {
+			return super.getMatchingPullRequestMetadataFromGitHub(branch, remoteName, remoteUrl, upstreamBranchName);
+		}
+
+		const candidates = remoteName
+			? azdoRepositories.filter(repo => repo.remote.remoteName === remoteName)
+			: azdoRepositories;
+		if (candidates.length === 0) {
+			// The remote belongs to a non-AzDO provider; keep the GitHub behavior intact.
+			return super.getMatchingPullRequestMetadataFromGitHub(branch, remoteName, remoteUrl, upstreamBranchName);
+		}
+
+		const branchName = (upstreamBranchName ?? branch.name ?? '').replace(/^refs\/heads\//, '');
+		if (!branchName) {
+			return null;
+		}
+
+		Logger.debug(`Searching AzDO for a PR with source branch ${branchName}`, 'AzdoFolderRepositoryManager');
+		for (const repository of candidates) {
+			try {
+				const result = await repository.getPullRequestsByCriteria({
+					sourceRefName: `refs/heads/${branchName}`,
+					status: PullRequestStatus.Active,
+				});
+				const first = result?.items[0];
+				if (first) {
+					return {
+						owner: repository.azdoRemoteInfo.org,
+						repositoryName: repository.azdoRemoteInfo.repositoryName,
+						prNumber: first.number,
+						model: first,
+					};
+				}
+			} catch (e) {
+				Logger.error(`Unable to get matching pull request metadata from AzDO: ${e}`, 'AzdoFolderRepositoryManager');
+				return null;
+			}
+		}
+		return null;
 	}
 
 	override async fetchAndCheckout(pullRequest: PullRequestModel, progress: vscode.Progress<{ message?: string; increment?: number }>): Promise<void> {
