@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import { LiveShare } from 'vsls/vscode.js';
 import { PostCommitCommandsProvider, Repository } from './api/api';
 import { GitApiImpl } from './api/api1';
+import { AzdoCredentialStore } from './azdo/credentials';
 import { azdoGates } from './azdo/gates';
 import { registerCommands } from './commands';
 import { AuthProvider } from './common/authentication';
@@ -475,6 +476,8 @@ async function deferredActivate(context: vscode.ExtensionContext, showPRControll
 	TemporaryState.init(context);
 	Logger.debug('Creating credential store.', 'Activation');
 	const credentialStore = new CredentialStore(telemetry, context);
+	const azdoCredentialStore = new AzdoCredentialStore(telemetry, context);
+	context.subscriptions.push(azdoCredentialStore);
 	context.subscriptions.push(credentialStore);
 	const experimentationService = await createExperimentationService(context, telemetry);
 	await experimentationService.initializePromise;

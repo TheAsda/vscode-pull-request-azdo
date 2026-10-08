@@ -375,7 +375,14 @@ async function getExtensionConfig(target, mode, env) {
 						"constants": require.resolve("constants-browserify"),
 						buffer: require.resolve('buffer'),
 						timers: require.resolve('timers-browserify'),
-						http: require.resolve("stream-http")
+						http: require.resolve("stream-http"),
+						// azure-devops-node-api / typed-rest-client / tunnel. The AzDO connection is
+						// desktop-only for now; stub these so the webworker bundle still builds and
+						// the provider registration stays inert on the web.
+						https: false,
+						net: false,
+						tls: false,
+						zlib: false
 					}
 					: {
 						http: require.resolve("stream-http")
