@@ -20,4 +20,6 @@ export const azdoGates = {
 	notifications: false,
 	/** Copilot remote coding agents (src/github/copilotRemoteAgent.ts). */
 	copilotRemoteAgents: false,
+	/** TreeView.message markdown banner (treeViewMarkdownMessage proposed API, compare changes tree). */
+	treeViewMessage: false,
 };
