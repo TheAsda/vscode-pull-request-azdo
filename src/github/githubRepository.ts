@@ -952,11 +952,14 @@ export class GitHubRepository extends Disposable {
 			...params,
 			stack_number: stacks[0].number,
 		}));
-		if (result.status === 204) {
+		// The generated octokit types narrow `status` to a single literal, which makes
+		// the direct comparisons below a TS2367 compile error. Widen it explicitly.
+		const status: number = result.status;
+		if (status === 204) {
 			this.notifyStackChanged(expectedPullRequests);
 			return [];
 		}
-		if (result.status !== 200 || !isObject(result.data) || !Array.isArray(result.data.pull_requests)
+		if (status !== 200 || !isObject(result.data) || !Array.isArray(result.data.pull_requests)
 			|| !result.data.pull_requests.every((pr: unknown) => isObject(pr) && typeof pr.number === 'number')) {
 			throw new Error('GitHub returned an invalid result when unstacking pull requests.');
 		}
