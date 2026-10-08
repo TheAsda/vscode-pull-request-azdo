@@ -27,7 +27,7 @@
 		"quickDiffProvider",
 		"tabInputMultiDiff"
 	],
-	"version": "0.168.0",
+	"version": "0.168.1",
 	"publisher": "TheAsda",
 	"engines": {
 		"node": ">=20",
