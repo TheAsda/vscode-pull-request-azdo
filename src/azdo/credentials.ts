@@ -203,12 +203,16 @@ export class AzdoCredentialStore implements vscode.Disposable {
 		);
 		// Entra sessions are owned by the 'microsoft' provider and can be refreshed or
 		// removed at any time; drop affected connections so the next call re-reads them.
+		// Fire the change unconditionally: gating on token validity would keep serving the
+		// previous account's connection for the lifetime of its (still valid) token after an
+		// account switch, which surfaces as TF400813 identity errors minutes later.
 		this._disposables.push(
 			vscode.authentication.onDidChangeSessions(e => {
 				if (e.provider.id === 'microsoft') {
 					for (const orgUrl of [...this._connections.keys()]) {
 						if (!this.hasStoredPat(orgUrl)) {
 							this._connections.delete(orgUrl);
+							this._onDidChangeCredentials.fire(orgUrl);
 						}
 					}
 				}

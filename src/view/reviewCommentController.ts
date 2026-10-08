@@ -13,6 +13,7 @@ import { CommentControllerBase } from './commentControllBase';
 import { RemoteFileChangeModel } from './fileChangeModel';
 import { ReviewManager } from './reviewManager';
 import { ReviewModel } from './reviewModel';
+import { AzdoPullRequestModel } from '../azdo/pullRequestModel';
 import { DiffSide, IReviewThread, SubjectType } from '../common/comment';
 import { getCommentingRanges } from '../common/commentingRanges';
 import { mapNewPositionToOld, mapOldPositionToNew } from '../common/diffPositionMapping';
@@ -26,6 +27,7 @@ import { fromReviewUri, ReviewUriParams, Schemes, toReviewUri } from '../common/
 import { arrayFindIndexAsync, formatError, groupBy, uniqBy } from '../common/utils';
 import { FolderRepositoryManager } from '../github/folderRepositoryManager';
 import { GHPRComment, GHPRCommentThread, TemporaryComment } from '../github/prComment';
+import type { PullRequestModel } from '../github/pullRequestModel';
 import { PullRequestOverviewPanel } from '../github/pullRequestOverview';
 import {
 	CommentReactionHandler,
@@ -679,6 +681,47 @@ export class ReviewCommentController extends CommentControllerBase implements Co
 		return DiffSide.RIGHT;
 	}
 
+	/**
+	 * Computes Azure DevOps thread-context character offsets from the VS Code selection.
+	 * VS Code characters are 0-based while AzDO offsets are 1-based; a gutter click
+	 * (empty range) anchors the whole line so the thread never collapses to a
+	 * zero-width range in the AzDO web UI.
+	 */
+	private computeAzdoAnchoring(thread: GHPRCommentThread): { startOffset: number; endOffset: number } {
+		const range = thread.range!;
+		let startOffset = range.start.character + 1;
+		let endOffset = range.end.character + 1;
+		if (range.start.isEqual(range.end)) {
+			const document = vscode.workspace.textDocuments.find(document => document.uri.toString() === thread.uri.toString());
+			startOffset = 1;
+			endOffset = document && range.start.line < document.lineCount
+				? document.lineAt(range.start.line).text.length + 1
+				: 1;
+		}
+		return { startOffset, endOffset };
+	}
+
+	/**
+	 * Creates a review thread, forwarding selection-based character anchoring when the
+	 * pull request is backed by Azure DevOps (GitHub threads carry line numbers only).
+	 */
+	private async createReviewThreadForPullRequest(
+		pullRequest: PullRequestModel,
+		input: string,
+		fileName: string,
+		startLine: number | undefined,
+		endLine: number | undefined,
+		side: DiffSide,
+		suppressDraftModeUpdate: boolean | undefined,
+		thread: GHPRCommentThread | undefined,
+	): Promise<unknown> {
+		if (pullRequest instanceof AzdoPullRequestModel) {
+			return pullRequest.createReviewThread(input, fileName, startLine, endLine, side, suppressDraftModeUpdate,
+				thread?.range ? this.computeAzdoAnchoring(thread) : undefined);
+		}
+		return pullRequest.createReviewThread(input, fileName, startLine, endLine, side, suppressDraftModeUpdate);
+	}
+
 	public async startReview(thread: GHPRCommentThread, input: string): Promise<void> {
 		const hasExistingComments = thread.comments.length;
 		let temporaryCommentId: number | undefined = undefined;
@@ -706,7 +749,7 @@ export class ReviewCommentController extends CommentControllerBase implements Co
 					endLine++;
 				}
 
-				await Promise.all([this._folderRepoManager.activePullRequest!.createReviewThread(input, fileName, startLine, endLine, side),
+				await Promise.all([this.createReviewThreadForPullRequest(this._folderRepoManager.activePullRequest!, input, fileName, startLine, endLine, side, undefined, thread),
 				setReplyAuthor(thread, await this._folderRepoManager.getCurrentUser(this._folderRepoManager.activePullRequest!.githubRepository), this._context)
 				]);
 			} else {
@@ -817,14 +860,7 @@ export class ReviewCommentController extends CommentControllerBase implements Co
 					endLine++;
 				}
 				await Promise.all([
-					this._folderRepoManager.activePullRequest.createReviewThread(
-						input,
-						fileName,
-						startLine,
-						endLine,
-						side,
-						isSingleComment,
-					),
+					this.createReviewThreadForPullRequest(this._folderRepoManager.activePullRequest, input, fileName, startLine, endLine, side, isSingleComment, thread),
 					setReplyAuthor(thread, await this._folderRepoManager.getCurrentUser(this._folderRepoManager.activePullRequest.githubRepository), this._context)
 				]);
 			} else {

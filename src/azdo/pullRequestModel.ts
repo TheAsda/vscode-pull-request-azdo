@@ -82,7 +82,10 @@ export class AzdoPullRequestModel extends PullRequestModel {
 		}
 
 		try {
-			const mergeBase = await this.ensureLocalMergeBase(repository);
+			// The merge base is advisory: when it cannot be computed (missing target ref,
+			// corrupted object, interrupted fetch) fall back to the target tip instead of
+			// emptying the file list - the diff just becomes noisier, not wrong.
+			const mergeBase = (await this.ensureLocalMergeBase(repository)) ?? this.base?.sha;
 			if (!mergeBase) {
 				return [];
 			}
@@ -207,6 +210,7 @@ export class AzdoPullRequestModel extends PullRequestModel {
 		endLine: number | undefined,
 		side: DiffSide,
 		_suppressDraftModeUpdate?: boolean,
+		anchoring?: { startOffset: number; endOffset: number },
 	): Promise<IReviewThread | undefined> {
 		if (!this.validatePullRequestModel('Creating comment failed')) {
 			return undefined;
@@ -217,18 +221,24 @@ export class AzdoPullRequestModel extends PullRequestModel {
 		}
 
 		const isFileComment = startLine === undefined || endLine === undefined || startLine === 0 || endLine === 0;
+		const endLineResolved = endLine ?? startLine;
+		// VS Code selection characters are 0-based, AzDO thread context offsets are 1-based.
+		// Without an explicit anchoring (gutter click, suggestion block) anchor the whole
+		// line so the thread never collapses to a zero-width range in the web UI.
+		const startOffset = anchoring?.startOffset ?? 1;
+		const endOffset = anchoring?.endOffset ?? Math.max(1, startOffset);
 		const threadContext: GitPullRequestCommentThread['threadContext'] = isFileComment
 			? { filePath: `/${commentPath.replace(/^\//, '')}` }
 			: side === DiffSide.LEFT
 				? {
 					filePath: `/${commentPath.replace(/^\//, '')}`,
-					leftFileStart: { line: startLine, offset: 0 },
-					leftFileEnd: { line: endLine, offset: 1 },
+					leftFileStart: { line: startLine, offset: startOffset },
+					leftFileEnd: { line: endLineResolved, offset: endOffset },
 				}
 				: {
 					filePath: `/${commentPath.replace(/^\//, '')}`,
-					rightFileStart: { line: startLine, offset: 0 },
-					rightFileEnd: { line: endLine, offset: 1 },
+					rightFileStart: { line: startLine, offset: startOffset },
+					rightFileEnd: { line: endLineResolved, offset: endOffset },
 				};
 
 		const created = await azdoRepository.createAzdoThread(this.number, {
