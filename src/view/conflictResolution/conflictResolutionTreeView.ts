@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
+import { azdoGates } from '../../azdo/gates';
 import { commands } from '../../common/executeCommands';
 import { Disposable } from '../../common/lifecycle';
 import { Conflict, ConflictResolutionModel } from '../../github/conflictResolutionModel';
@@ -68,7 +69,9 @@ export class ConflictResolutionTreeView extends Disposable implements vscode.Tre
 			}
 			children = Array.from(this._conflictResolutionModel.startingConflicts.values()).map(conflict => ({ conflict }));
 		}
-		(this._treeView as vscode.TreeView2<ConflictNode>).message = exit;
+		if (azdoGates.treeViewMessage) {
+			(this._treeView as vscode.TreeView2<ConflictNode>).message = exit;
+		}
 		return children;
 	}
 }

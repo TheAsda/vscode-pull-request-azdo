@@ -9,6 +9,7 @@ import { PrsTreeModel } from './prsTreeModel';
 import { ReviewModel } from './reviewModel';
 import { StackCandidate } from '../../common/views';
 import { getEnterpriseUris } from '../authentication/configuration';
+import { azdoGates } from '../azdo/gates';
 import { AuthProvider } from '../common/authentication';
 import { commands, contexts } from '../common/executeCommands';
 import { Disposable } from '../common/lifecycle';
@@ -695,14 +696,18 @@ export class PullRequestsTreeDataProvider extends Disposable implements vscode.T
 			Logger.error(`GitHub Enterprise configuration is unavailable: ${formatError(error)}`, 'PullRequestsTree');
 			message = enterpriseSettingsMessage(vscode.l10n.t('Check your GitHub Enterprise instances in Settings.\n\n{0}', formatError(error)), { github: showPublicSignIn, githubEnterprise: false, configure: true });
 		}
-		(this._view as vscode.TreeView2<TreeNode>).message = message;
-		(this._loginView as vscode.TreeView2<TreeNode>).message = message;
+		if (azdoGates.treeViewMessage) {
+			(this._view as vscode.TreeView2<TreeNode>).message = message;
+			(this._loginView as vscode.TreeView2<TreeNode>).message = message;
+		}
 	}
 
 	async getChildren(element?: TreeNode): Promise<TreeNode[]> {
 		if (!this._reposManager?.folderManagers.length) {
-			this._view.message = undefined;
-			this._loginView.message = undefined;
+			if (azdoGates.treeViewMessage) {
+				this._view.message = undefined;
+				this._loginView.message = undefined;
+			}
 			return [];
 		}
 

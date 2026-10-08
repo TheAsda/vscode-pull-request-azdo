@@ -6,6 +6,7 @@
 import * as azdev from 'azure-devops-node-api';
 import { IRequestHandler } from 'azure-devops-node-api/interfaces/common/VsoBaseInterfaces';
 import { Identity } from 'azure-devops-node-api/interfaces/IdentitiesInterfaces';
+import { getAzdoConfigIgnoreCertificateErrors } from './config';
 import Logger from '../common/logger';
 
 export interface AzdoValidatedConnection {
@@ -24,7 +25,9 @@ export class AzdoConnection {
 		private readonly handler: IRequestHandler,
 		private readonly isPat: boolean,
 	) {
-		this.api = new azdev.WebApi(orgUrl, handler);
+		// `azdo.ignoreCertificateErrors`: for on-prem servers with self-signed certificates.
+		const ignoreSslError = getAzdoConfigIgnoreCertificateErrors();
+		this.api = new azdev.WebApi(orgUrl, handler, ignoreSslError ? { ignoreSslError: true } : undefined);
 	}
 
 	/**

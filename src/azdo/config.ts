@@ -35,3 +35,8 @@ export function getAzdoConfigProjectName(): string | undefined {
 export function getAzdoConfigPat(): string | undefined {
 	return getValue('pat');
 }
+
+/** Skip TLS certificate validation for on-prem servers with self-signed certificates. */
+export function getAzdoConfigIgnoreCertificateErrors(): boolean {
+	return vscode.workspace.getConfiguration(AZDO_CONFIG_NAMESPACE).get<boolean>('ignoreCertificateErrors') ?? false;
+}

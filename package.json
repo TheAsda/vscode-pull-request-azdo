@@ -27,7 +27,7 @@
 		"quickDiffProvider",
 		"tabInputMultiDiff"
 	],
-	"version": "0.168.2",
+	"version": "0.168.3",
 	"publisher": "TheAsda",
 	"engines": {
 		"node": ">=20",
@@ -894,6 +894,11 @@
 					"type": "boolean",
 					"default": false,
 					"description": "%githubIssues.alwaysPromptForNewIssueRepo.description%"
+				},
+				"azdo.ignoreCertificateErrors": {
+					"type": "boolean",
+					"default": false,
+					"markdownDescription": "%azdo.ignoreCertificateErrors.markdownDescription%"
 				}
 			}
 		},

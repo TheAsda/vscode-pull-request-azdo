@@ -475,5 +475,6 @@
 	"submenu.azdo.vote.title": "Vote (Azure DevOps)",
 	"azdo.orgUrl.markdownDescription": "Azure DevOps organization base URL (e.g. `https://dev.azure.com/contoso`). Overrides the organization detected from the git remote.",
 	"azdo.projectName.markdownDescription": "Azure DevOps project name. Overrides the project detected from the git remote.",
-	"azdo.pat.markdownDescription": "Azure DevOps personal access token. Takes precedence over the Accounts sign-in. Warning: stored in plaintext in settings.json; prefer the Accounts-menu sign-in when possible."
+	"azdo.pat.markdownDescription": "Azure DevOps personal access token. Takes precedence over the Accounts sign-in. Warning: stored in plaintext in settings.json; prefer the Accounts-menu sign-in when possible.",
+	"azdo.ignoreCertificateErrors.markdownDescription": "Skip TLS certificate validation when connecting to Azure DevOps. Intended for on-premises servers with self-signed certificates. Warning: disables certificate checks for all AzDO connections from this extension."
 }
