@@ -27,7 +27,7 @@
 		"quickDiffProvider",
 		"tabInputMultiDiff"
 	],
-	"version": "0.168.1",
+	"version": "0.168.2",
 	"publisher": "TheAsda",
 	"engines": {
 		"node": ">=20",
@@ -70,6 +70,18 @@
 			"type": "object",
 			"title": "GitHub Pull Requests",
 			"properties": {
+				"azdo.orgUrl": {
+					"type": "string",
+					"markdownDescription": "%azdo.orgUrl.markdownDescription%"
+				},
+				"azdo.projectName": {
+					"type": "string",
+					"markdownDescription": "%azdo.projectName.markdownDescription%"
+				},
+				"azdo.pat": {
+					"type": "string",
+					"markdownDescription": "%azdo.pat.markdownDescription%"
+				},
 				"githubPullRequests.pullRequestTitle": {
 					"deprecationMessage": "The pull request title now uses the same defaults as GitHub, and can be edited before create.",
 					"type": "string",

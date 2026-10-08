@@ -472,5 +472,8 @@
 	"command.azdo.pr.waitingForAuthor.title": "Vote: Waiting for Author (Azure DevOps)",
 	"command.azdo.pr.reject.title": "Reject Pull Request (Azure DevOps)",
 	"command.azdo.pr.resetVote.title": "Remove My Vote (Azure DevOps)",
-	"submenu.azdo.vote.title": "Vote (Azure DevOps)"
+	"submenu.azdo.vote.title": "Vote (Azure DevOps)",
+	"azdo.orgUrl.markdownDescription": "Azure DevOps organization base URL (e.g. `https://dev.azure.com/contoso`). Overrides the organization detected from the git remote.",
+	"azdo.projectName.markdownDescription": "Azure DevOps project name. Overrides the project detected from the git remote.",
+	"azdo.pat.markdownDescription": "Azure DevOps personal access token. Takes precedence over the Accounts sign-in. Warning: stored in plaintext in settings.json; prefer the Accounts-menu sign-in when possible."
 }

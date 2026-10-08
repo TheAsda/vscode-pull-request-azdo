@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { default as assert } from 'assert';
-import { azdoSecretKey, isAzdoCloudHost, parseAzdoRemoteUrl } from '../../azdo/remote';
+import { applyAzdoConfigOverrides, azdoSecretKey, isAzdoCloudHost, parseAzdoOrgUrl, parseAzdoRemoteUrl } from '../../azdo/remote';
 
 describe('azdo remote parsing', () => {
 	describe('cloud https', () => {
@@ -125,6 +125,42 @@ describe('azdo remote parsing', () => {
 			assert.strictEqual(a, b);
 			assert.ok(!/[+/=]/.test(a));
 			assert.ok(a.startsWith('azdo.pat.'));
+		});
+	});
+
+	describe('parseAzdoOrgUrl', () => {
+		it('parses cloud, legacy and on-prem org urls', () => {
+			assert.deepStrictEqual(parseAzdoOrgUrl('https://dev.azure.com/contoso'), { orgUrl: 'https://dev.azure.com/contoso', host: 'dev.azure.com', isCloud: true, org: 'contoso' });
+			assert.strictEqual(parseAzdoOrgUrl('contoso.visualstudio.com')?.org, 'contoso');
+			assert.strictEqual(parseAzdoOrgUrl('https://tfs.contoso.com/tfs/DefaultCollection')?.org, 'DefaultCollection');
+			assert.strictEqual(parseAzdoOrgUrl('https://tfs.contoso.com/tfs/DefaultCollection')?.isCloud, false);
+			assert.strictEqual(parseAzdoOrgUrl('not a url'), null);
+		});
+	});
+
+	describe('applyAzdoConfigOverrides', () => {
+		it('returns the parsed info unchanged when no org url is configured', () => {
+			const info = parseAzdoRemoteUrl('https://dev.azure.com/contoso/Proj/_git/repo', 'origin');
+			assert.strictEqual(applyAzdoConfigOverrides(info, 'https://dev.azure.com/contoso/Proj/_git/repo', 'origin', {}), info);
+			assert.strictEqual(applyAzdoConfigOverrides(null, 'https://github.com/x/y', 'origin', {}), null);
+		});
+		it('overrides org url and project on parsed remotes', () => {
+			const info = parseAzdoRemoteUrl('https://dev.azure.com/contoso/Proj/_git/repo', 'origin')!;
+			const overridden = applyAzdoConfigOverrides(info, 'https://dev.azure.com/contoso/Proj/_git/repo', 'origin', { orgUrl: 'https://dev.azure.com/other', project: 'RealProj' })!;
+			assert.strictEqual(overridden.orgUrl, 'https://dev.azure.com/other');
+			assert.strictEqual(overridden.project, 'RealProj');
+			assert.strictEqual(overridden.repositoryName, 'repo');
+		});
+		it('synthesizes info for unparseable remotes when project is configured', () => {
+			const synthesized = applyAzdoConfigOverrides(null, 'https://tfs.corp.local/git/MyRepo.git', 'upstream', { orgUrl: 'https://tfs.corp.local/tfs/Col', project: 'Proj' })!;
+			assert.strictEqual(synthesized.orgUrl, 'https://tfs.corp.local/tfs/Col');
+			assert.strictEqual(synthesized.project, 'Proj');
+			assert.strictEqual(synthesized.repositoryName, 'MyRepo');
+			assert.strictEqual(synthesized.org, 'Col');
+			assert.strictEqual(synthesized.remoteName, 'upstream');
+		});
+		it('cannot synthesize without a configured project', () => {
+			assert.strictEqual(applyAzdoConfigOverrides(null, 'https://tfs.corp.local/git/MyRepo', 'upstream', { orgUrl: 'https://tfs.corp.local/tfs/Col' }), null);
 		});
 	});
 });

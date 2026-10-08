@@ -6,10 +6,11 @@
 import { GitPullRequestSearchCriteria, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import * as vscode from 'vscode';
 import { AzdoRepository } from './azdoRepository';
+import { AZDO_CONFIG_NAMESPACE, getAzdoConfigOrgUrl, getAzdoConfigProjectName } from './config';
 import { AzdoCredentialStore } from './credentials';
 import { AzdoPullRequestGitHelper, AzdoRemoteEntry } from './pullRequestGitHelper';
 import { AzdoPullRequestModel } from './pullRequestModel';
-import { AzdoRemoteInfo, parseAzdoRemoteUrl } from './remote';
+import { applyAzdoConfigOverrides, AzdoRemoteInfo, parseAzdoRemoteUrl } from './remote';
 import { convertIdentityRefToAccount } from './utils';
 import { Repository } from '../api/api';
 import { GitApiImpl } from '../api/api1';
@@ -58,6 +59,13 @@ export class AzdoFolderRepositoryManager extends FolderRepositoryManager {
 			this._azdoPromptedForAuth = false;
 			this.updateRepositories(true).catch(error => Logger.error(`AzDO repository refresh failed: ${error}`, 'AzdoFolderRepositoryManager'));
 		}));
+		this._register(vscode.workspace.onDidChangeConfiguration(e => {
+			// Explicit `azdo.*` settings changed: rescan with the new overrides.
+			if (e.affectsConfiguration(AZDO_CONFIG_NAMESPACE)) {
+				this._azdoPromptedForAuth = false;
+				this.updateRepositories(true).catch(error => Logger.error(`AzDO repository refresh failed: ${error}`, 'AzdoFolderRepositoryManager'));
+			}
+		}));
 	}
 
 	/**
@@ -67,13 +75,14 @@ export class AzdoFolderRepositoryManager extends FolderRepositoryManager {
 	private async getAzdoRemotes(): Promise<{ remote: Remote; info: AzdoRemoteInfo }[]> {
 		const remotes = await parseRepositoryRemotesAsync(this.repository);
 		const remotesSetting = vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<string[]>(REMOTES);
+		const config = { orgUrl: getAzdoConfigOrgUrl(), project: getAzdoConfigProjectName() };
 		const result: { remote: Remote; info: AzdoRemoteInfo }[] = [];
 		const seen = new Set<string>();
 		for (const remote of remotes) {
 			if (remotesSetting?.length && !remotesSetting.includes(remote.remoteName)) {
 				continue;
 			}
-			const info = parseAzdoRemoteUrl(remote.url, remote.remoteName);
+			const info = applyAzdoConfigOverrides(parseAzdoRemoteUrl(remote.url, remote.remoteName), remote.url, remote.remoteName, config);
 			if (!info) {
 				continue;
 			}

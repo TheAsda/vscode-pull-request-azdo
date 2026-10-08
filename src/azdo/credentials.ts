@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { AzdoConnection, createBearerConnection, createPatConnection, isAuthFailure } from './azdoApi';
+import { getAzdoConfigPat } from './config';
 import { AZDO_RESOURCE_ID, azdoSecretKey, isAzdoCloudHost } from './remote';
 import Logger from '../common/logger';
 import { ITelemetry } from '../common/telemetry';
@@ -239,10 +240,14 @@ export class AzdoCredentialStore implements vscode.Disposable {
 
 	/**
 	 * Returns a validated connection for the org, creating one when needed.
-	 * PAT (if stored) > Entra (cloud orgs) > PAT prompt (when createIfNone).
+	 * Settings PAT (`azdo.pat`) > stored PAT > Entra (cloud orgs) > PAT prompt (when createIfNone).
 	 */
 	public async getOrCreateConnection(orgUrl: string, options: { createIfNone?: boolean } = {}): Promise<AzdoConnection | undefined> {
 		const normalized = normalizeOrgUrl(orgUrl);
+		if (getAzdoConfigPat()) {
+			// A settings PAT is explicit configuration: never serve a stale cached connection.
+			this._connections.delete(normalized);
+		}
 		const cached = this._connections.get(normalized);
 		if (cached) {
 			return cached;
@@ -278,6 +283,19 @@ export class AzdoCredentialStore implements vscode.Disposable {
 	}
 
 	private async doCreateConnection(normalized: string, options: { createIfNone?: boolean }): Promise<AzdoConnection | undefined> {
+		// 0. PAT from the `azdo.pat` setting (explicit configuration, plaintext).
+		const configPat = getAzdoConfigPat();
+		if (configPat) {
+			const connection = createPatConnection(normalized, configPat);
+			try {
+				await connection.validate();
+				return connection;
+			} catch (error) {
+				Logger.appendLine(`AzDO settings PAT rejected for ${normalized}: ${error instanceof Error ? error.message : String(error)}`, 'AzdoCredentials');
+				// Fall through to the other sources rather than failing outright.
+			}
+		}
+
 		// 1. Stored PAT.
 		const patSession = await this._provider.getSessions([normalized], {});
 		if (patSession.length > 0) {

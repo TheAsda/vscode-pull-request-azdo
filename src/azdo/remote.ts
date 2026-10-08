@@ -170,3 +170,93 @@ export function azdoSecretKey(orgUrl: string): string {
 	const normalized = orgUrl.toLowerCase().replace(/\/$/, '');
 	return `azdo.pat.${btoa(normalized).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
 }
+
+/**
+ * Parses a configured organization URL (e.g. https://dev.azure.com/contoso or
+ * https://tfs.contoso.com/tfs/DefaultCollection) into its host/org parts.
+ * Returns null when the value is not a usable http(s) URL.
+ */
+export function parseAzdoOrgUrl(orgUrl: string): { orgUrl: string; host: string; isCloud: boolean; org: string } | null {
+	if (!orgUrl) {
+		return null;
+	}
+	let candidate = orgUrl.trim().replace(/\/+$/, '');
+	if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(candidate)) {
+		candidate = `https://${candidate}`;
+	}
+	let parsed: URL;
+	try {
+		parsed = new URL(candidate);
+	} catch (e) {
+		return null;
+	}
+	if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+		return null;
+	}
+	const host = parsed.hostname.toLowerCase();
+	const segments = parsed.pathname.replace(/\\/g, '/').split('/').filter(segment => segment.length > 0);
+	let org = '';
+	if (host === AZDO_CLOUD_HOST) {
+		org = segments[0] ?? '';
+	} else if (host.endsWith(AZDO_LEGACY_CLOUD_HOST_SUFFIX)) {
+		org = host.slice(0, -AZDO_LEGACY_CLOUD_HOST_SUFFIX.length);
+	} else {
+		org = segments[segments.length - 1] ?? '';
+	}
+	return { orgUrl: candidate, host, isCloud: isAzdoCloudHost(host), org };
+}
+
+/**
+ * Applies the explicit `azdo.orgUrl` / `azdo.projectName` settings to a parsed remote.
+ *
+ * - With no configured orgUrl the parsed info is returned unchanged (null stays null).
+ * - With a configured orgUrl the org (and project, when configured) are overridden, which
+ *   also makes unparseable remote URLs usable as long as a project is configured: the
+ *   repository name is taken to be the last meaningful segment of the remote URL.
+ */
+export function applyAzdoConfigOverrides(
+	info: AzdoRemoteInfo | null,
+	url: string,
+	remoteName: string,
+	config: { orgUrl?: string; project?: string },
+): AzdoRemoteInfo | null {
+	if (!config.orgUrl) {
+		return info;
+	}
+	const parsedOrg = parseAzdoOrgUrl(config.orgUrl);
+	if (!parsedOrg) {
+		return info;
+	}
+	if (info) {
+		return { ...info, orgUrl: parsedOrg.orgUrl, project: config.project ?? info.project };
+	}
+	if (!config.project) {
+		return null;
+	}
+	// Synthesize from the raw remote URL: repository name = last non-marker path segment.
+	let candidate = url.trim();
+	const scpMatch = /^([^@/]+@)?([^:/]+):(.+)$/.exec(candidate);
+	if (scpMatch && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(candidate)) {
+		candidate = `ssh://${scpMatch[1] ?? ''}${scpMatch[2]}/${scpMatch[3]}`;
+	}
+	const segments = candidate
+		.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '')
+		.replace(/\\/g, '/')
+		.split('/')
+		.map(segment => segment.replace(/\.git$/, '').trim())
+		.filter(segment => segment.length > 0 && segment !== '_git' && segment !== 'v3');
+	const repositoryName = segments[segments.length - 1];
+	if (!repositoryName) {
+		return null;
+	}
+	return {
+		remoteName,
+		url,
+		host: parsedOrg.host,
+		isCloud: parsedOrg.isCloud,
+		orgUrl: parsedOrg.orgUrl,
+		org: parsedOrg.org,
+		project: config.project,
+		repositoryName,
+	};
+}
