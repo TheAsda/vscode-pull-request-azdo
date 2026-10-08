@@ -4,14 +4,20 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { default as assert } from 'assert';
-import { GitPullRequest, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
+import { Comment, CommentThreadStatus, CommentType, GitPullRequest, GitPullRequestCommentThread, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import { parseAzdoRemoteUrl } from '../../azdo/remote';
 import {
 	absolutizeAvatarUrl,
+	azdoCommentNodeId,
+	azdoThreadId,
 	buildPrBrowseUrl,
 	convertAzdoPullRequestToItem,
+	convertAzdoThreadToReviewThread,
 	convertBranchRefToBranchName,
 	convertIdentityRefToAccount,
+	getAzdoThreadPosition,
+	parseAzdoCommentNodeId,
+	parseAzdoThreadId,
 } from '../../azdo/utils';
 
 const REMOTE = parseAzdoRemoteUrl('https://dev.azure.com/contoso/MyProject/_git/MyRepo')!;
@@ -149,6 +155,146 @@ describe('azdo converters', () => {
 
 			assert.strictEqual(item.isRemoteHeadDeleted, true);
 			assert.strictEqual(item.head!.ref, '');
+		});
+	});
+
+	describe('thread and comment ids', () => {
+		it('round-trips thread ids', () => {
+			assert.strictEqual(azdoThreadId(4711), 'azdo-4711');
+			assert.strictEqual(parseAzdoThreadId('azdo-4711'), 4711);
+			assert.strictEqual(parseAzdoThreadId('github-4711'), undefined);
+			assert.strictEqual(parseAzdoThreadId('azdo-4711-8'), undefined);
+		});
+
+		it('round-trips comment node ids', () => {
+			assert.strictEqual(azdoCommentNodeId(4711, 8), 'azdo-4711-8');
+			assert.deepStrictEqual(parseAzdoCommentNodeId('azdo-4711-8'), { threadId: 4711, commentId: 8 });
+			assert.strictEqual(parseAzdoCommentNodeId('azdo-4711'), undefined);
+		});
+	});
+
+	describe('getAzdoThreadPosition', () => {
+		it('prefers the right side from threadContext', () => {
+			const position = getAzdoThreadPosition({
+				threadContext: {
+					filePath: '/src/file.ts',
+					rightFileStart: { line: 10, offset: 1 },
+					rightFileEnd: { line: 12, offset: 1 },
+				},
+			} as GitPullRequestCommentThread);
+			assert.strictEqual(position.diffSide, 'RIGHT');
+			assert.strictEqual(position.subjectType, 'LINE');
+			assert.strictEqual(position.startLine, 10);
+			assert.strictEqual(position.endLine, 12);
+			assert.strictEqual(position.originalStartLine, 10);
+			assert.strictEqual(position.originalEndLine, 12);
+		});
+
+		it('falls back to the left side when only leftFileStart is set', () => {
+			const position = getAzdoThreadPosition({
+				threadContext: {
+					filePath: '/src/file.ts',
+					leftFileStart: { line: 3, offset: 1 },
+					leftFileEnd: { line: 4, offset: 1 },
+				},
+			} as GitPullRequestCommentThread);
+			assert.strictEqual(position.diffSide, 'LEFT');
+			assert.strictEqual(position.startLine, 3);
+			assert.strictEqual(position.endLine, 4);
+		});
+
+		it('uses trackingCriteria as the original position', () => {
+			const position = getAzdoThreadPosition({
+				threadContext: {
+					filePath: '/src/file.ts',
+					rightFileStart: { line: 25, offset: 1 },
+					rightFileEnd: { line: 25, offset: 1 },
+				},
+				pullRequestThreadContext: {
+					trackingCriteria: {
+						origRightFileStart: { line: 20, offset: 1 },
+						origRightFileEnd: { line: 20, offset: 1 },
+					},
+				},
+			} as GitPullRequestCommentThread);
+			assert.strictEqual(position.startLine, 25);
+			assert.strictEqual(position.originalStartLine, 20);
+			assert.strictEqual(position.originalEndLine, 20);
+		});
+
+		it('treats threads without positions as file-level comments', () => {
+			const position = getAzdoThreadPosition({
+				threadContext: { filePath: '/src/file.ts' },
+			} as GitPullRequestCommentThread);
+			assert.strictEqual(position.subjectType, 'FILE');
+			assert.strictEqual(position.startLine, 0);
+			assert.strictEqual(position.endLine, 0);
+		});
+	});
+
+	describe('convertAzdoThreadToReviewThread', () => {
+		const comment = (id: number, content: string): Comment => ({
+			id,
+			content,
+			commentType: CommentType.Text,
+			author: { id: 'user-id', displayName: 'Ada Lovelace', uniqueName: 'ada@contoso.com' },
+			publishedDate: new Date('2025-06-01T10:00:00Z'),
+		});
+
+		it('maps an active line thread with comments', () => {
+			const thread = convertAzdoThreadToReviewThread({
+				id: 4711,
+				pullRequestId: 45,
+				status: CommentThreadStatus.Active,
+				threadContext: {
+					filePath: '/src/file.ts',
+					rightFileStart: { line: 10, offset: 1 },
+					rightFileEnd: { line: 10, offset: 1 },
+				},
+				comments: [comment(8, 'Looks good')],
+			} as GitPullRequestCommentThread, REMOTE);
+
+			assert.strictEqual(thread.id, 'azdo-4711');
+			assert.strictEqual(thread.isResolved, false);
+			assert.strictEqual(thread.viewerCanResolve, true);
+			assert.strictEqual(thread.viewerCanUnresolve, false);
+			assert.strictEqual(thread.path, 'src/file.ts');
+			assert.strictEqual(thread.diffSide, 'RIGHT');
+			assert.strictEqual(thread.startLine, 10);
+			assert.strictEqual(thread.comments.length, 1);
+			assert.strictEqual(thread.comments[0].graphNodeId, 'azdo-4711-8');
+			assert.strictEqual(thread.comments[0].threadId, 'azdo-4711');
+			assert.strictEqual(thread.comments[0].position, 10);
+			assert.strictEqual(thread.comments[0].user?.login, 'ada@contoso.com');
+			assert.ok(thread.comments[0].htmlUrl.includes('pullrequest/45?_a=files&discussionId=4711'));
+		});
+
+		it('maps a fixed thread as resolved', () => {
+			const thread = convertAzdoThreadToReviewThread({
+				id: 4712,
+				pullRequestId: 45,
+				status: CommentThreadStatus.Fixed,
+				threadContext: { filePath: '/src/file.ts' },
+				comments: [comment(9, 'Fixed now')],
+			} as GitPullRequestCommentThread, REMOTE);
+			assert.strictEqual(thread.isResolved, true);
+			assert.strictEqual(thread.viewerCanResolve, false);
+			assert.strictEqual(thread.viewerCanUnresolve, true);
+		});
+
+		it('filters deleted comments and normalizes file paths', () => {
+			const thread = convertAzdoThreadToReviewThread({
+				id: 4713,
+				pullRequestId: 45,
+				status: CommentThreadStatus.Active,
+				threadContext: { filePath: '\\src\\win.ts' },
+				comments: [comment(10, 'kept'), { ...comment(11, 'deleted'), isDeleted: true }],
+			} as GitPullRequestCommentThread, REMOTE);
+			assert.strictEqual(thread.path, 'src/win.ts');
+			assert.strictEqual(thread.subjectType, 'FILE');
+			assert.strictEqual(thread.comments.length, 1);
+			assert.strictEqual(thread.comments[0].body, 'kept');
+			assert.strictEqual(thread.comments[0].position, undefined);
 		});
 	});
 });

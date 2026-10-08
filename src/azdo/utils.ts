@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IdentityRef } from 'azure-devops-node-api/interfaces/common/VSSInterfaces';
-import { GitPullRequest, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
+import { Comment, CommentThreadStatus, GitPullRequest, GitPullRequestCommentThread, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import { AzdoRemoteInfo } from './remote';
 import type { AccountType, IAccount, IGitHubRef, PullRequest } from '../github/interface';
 
@@ -166,3 +166,169 @@ export function convertAzdoPullRequestToItem(
 export function getAzdoPrNumber(pullRequest: GitPullRequest): number {
 	return pullRequest.pullRequestId ?? -1;
 }
+
+// #region Pull request comment threads
+
+/** String enum values of `DiffSide`/`SubjectType` (type-only import keeps this module node-testable). */
+const DIFF_SIDE_LEFT = 'LEFT' as unknown as import('../common/comment').DiffSide;
+const DIFF_SIDE_RIGHT = 'RIGHT' as unknown as import('../common/comment').DiffSide;
+const SUBJECT_TYPE_LINE = 'LINE' as unknown as import('../common/comment').SubjectType;
+const SUBJECT_TYPE_FILE = 'FILE' as unknown as import('../common/comment').SubjectType;
+
+/** Stable thread id used across the upstream review-thread machinery. */
+export function azdoThreadId(threadId: number): string {
+	return `azdo-${threadId}`;
+}
+
+export function parseAzdoThreadId(threadId: string): number | undefined {
+	const match = /^azdo-(\d+)$/.exec(threadId);
+	return match ? Number(match[1]) : undefined;
+}
+
+/** Stable comment node id (`graphNodeId` equivalent), also used as the reply-to key. */
+export function azdoCommentNodeId(threadId: number, commentId: number): string {
+	return `azdo-${threadId}-${commentId}`;
+}
+
+export function parseAzdoCommentNodeId(nodeId: string): { threadId: number; commentId: number } | undefined {
+	const match = /^azdo-(\d+)-(\d+)$/.exec(nodeId);
+	return match ? { threadId: Number(match[1]), commentId: Number(match[2]) } : undefined;
+}
+
+function normalizeAzdoFilePath(filePath: string | undefined): string {
+	if (!filePath) {
+		return '';
+	}
+	return filePath.replace(/\\/g, '/').replace(/^\//, '');
+}
+
+export interface AzdoThreadPosition {
+	diffSide: import('../common/comment').DiffSide;
+	subjectType: import('../common/comment').SubjectType;
+	startLine: number;
+	endLine: number;
+	originalStartLine: number;
+	originalEndLine: number;
+}
+
+/**
+ * Computes the upstream review-thread position fields for an AzDO comment thread.
+ * AzDO tracks positions on both file sides (`threadContext` = current tracked position,
+ * `pullRequestThreadContext.trackingCriteria` = original position at creation); upstream
+ * only models one side per thread, so the right side wins when both are present.
+ */
+export function getAzdoThreadPosition(thread: GitPullRequestCommentThread): AzdoThreadPosition {
+	const context = thread.threadContext;
+	const tracking = thread.pullRequestThreadContext?.trackingCriteria;
+	const rightStart = context?.rightFileStart ?? tracking?.origRightFileStart;
+	const leftStart = context?.leftFileStart ?? tracking?.origLeftFileStart;
+
+	if (!rightStart && !leftStart) {
+		// File-level comment: no line position at all.
+		return {
+			diffSide: DIFF_SIDE_RIGHT,
+			subjectType: SUBJECT_TYPE_FILE,
+			startLine: 0,
+			endLine: 0,
+			originalStartLine: 0,
+			originalEndLine: 0,
+		};
+	}
+
+	const onRight = !!rightStart;
+	const contextStart = onRight ? context?.rightFileStart : context?.leftFileStart;
+	const contextEnd = onRight ? context?.rightFileEnd : context?.leftFileEnd;
+	const originalStart = onRight ? tracking?.origRightFileStart : tracking?.origLeftFileStart;
+	const originalEnd = onRight ? tracking?.origRightFileEnd : tracking?.origLeftFileEnd;
+
+	const startLine = contextStart?.line ?? originalStart?.line ?? 0;
+	const endLine = contextEnd?.line ?? originalEnd?.line ?? startLine;
+	return {
+		diffSide: onRight ? DIFF_SIDE_RIGHT : DIFF_SIDE_LEFT,
+		subjectType: SUBJECT_TYPE_LINE,
+		startLine,
+		endLine,
+		originalStartLine: originalStart?.line ?? startLine,
+		originalEndLine: originalEnd?.line ?? endLine,
+	};
+}
+
+function isAzdoThreadResolved(status: CommentThreadStatus | undefined): boolean {
+	switch (status) {
+		case CommentThreadStatus.Fixed:
+		case CommentThreadStatus.WontFix:
+		case CommentThreadStatus.ByDesign:
+		case CommentThreadStatus.Closed:
+			return true;
+		default:
+			return false;
+	}
+}
+
+/**
+ * Maps an AzDO thread comment onto the upstream `IComment` shape.
+ */
+export function convertAzdoCommentToIComment(
+	comment: Comment,
+	thread: GitPullRequestCommentThread,
+	remoteInfo: AzdoRemoteInfo,
+): import('../common/comment').IComment {
+	const threadId = thread.id ?? 0;
+	const commentId = comment.id ?? 0;
+	const prUrl = buildPrBrowseUrl(remoteInfo, getAzdoPrNumberFromThread(thread));
+	const discussionUrl = `${prUrl}?_a=files&discussionId=${threadId}`;
+	const position = getAzdoThreadPosition(thread);
+	return {
+		id: commentId,
+		graphNodeId: azdoCommentNodeId(threadId, commentId),
+		url: discussionUrl,
+		htmlUrl: discussionUrl,
+		body: comment.content ?? '',
+		createdAt: (comment.publishedDate ?? new Date()).toISOString(),
+		user: comment.author ? convertIdentityRefToAccount(comment.author, remoteInfo.orgUrl) : undefined,
+		path: normalizeAzdoFilePath(thread.threadContext?.filePath),
+		position: position.subjectType === SUBJECT_TYPE_LINE ? position.startLine : undefined,
+		diffHunk: '',
+		canEdit: false,
+		canDelete: false,
+		isDraft: false,
+		isOutdated: false,
+		threadId: azdoThreadId(threadId),
+	};
+}
+
+/**
+ * Maps an AzDO pull request comment thread onto the upstream `IReviewThread` shape so the
+ * stock review comment controllers render it without modification.
+ */
+export function convertAzdoThreadToReviewThread(
+	thread: GitPullRequestCommentThread,
+	remoteInfo: AzdoRemoteInfo,
+): import('../common/comment').IReviewThread {
+	const position = getAzdoThreadPosition(thread);
+	const isResolved = isAzdoThreadResolved(thread.status);
+	return {
+		id: azdoThreadId(thread.id ?? 0),
+		prReviewDatabaseId: thread.id,
+		isResolved,
+		viewerCanResolve: !isResolved,
+		viewerCanUnresolve: isResolved,
+		path: normalizeAzdoFilePath(thread.threadContext?.filePath),
+		diffSide: position.diffSide,
+		startLine: position.startLine,
+		endLine: position.endLine,
+		originalStartLine: position.originalStartLine,
+		originalEndLine: position.originalEndLine,
+		isOutdated: false,
+		subjectType: position.subjectType,
+		comments: (thread.comments ?? [])
+			.filter(comment => !comment.isDeleted)
+			.map(comment => convertAzdoCommentToIComment(comment, thread, remoteInfo)),
+	};
+}
+
+function getAzdoPrNumberFromThread(thread: GitPullRequestCommentThread): number {
+	return (thread as unknown as { pullRequestId?: number }).pullRequestId ?? 0;
+}
+
+// #endregion

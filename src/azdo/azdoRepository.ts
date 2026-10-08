@@ -3,7 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { GitPullRequest, GitPullRequestSearchCriteria, GitRepository, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
+import { GitApi } from 'azure-devops-node-api/GitApi';
+import { Comment, CommentThreadStatus, GitPullRequest, GitPullRequestCommentThread, GitPullRequestSearchCriteria, GitRepository, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import { Identity } from 'azure-devops-node-api/interfaces/IdentitiesInterfaces';
 import * as vscode from 'vscode';
 import { AzdoConnection } from './azdoApi';
@@ -11,6 +12,7 @@ import { AzdoCredentialStore } from './credentials';
 import { AzdoPullRequestModel } from './pullRequestModel';
 import { AzdoRemoteInfo } from './remote';
 import { convertAzdoPullRequestToItem, convertBranchRefToBranchName } from './utils';
+import type { Repository } from '../api/api';
 import { AuthenticationError } from '../common/authentication';
 import Logger from '../common/logger';
 import { GitHubRemote } from '../common/remote';
@@ -211,6 +213,69 @@ export class AzdoRepository extends GitHubRepository {
 		// The AzDO remote is already fully parsed from the git URL; there is no metadata
 		// round-trip needed to resolve owner/repo.
 		return true;
+	}
+
+	/**
+	 * The VS Code git extension `Repository` for the workspace folder this AzDO repository
+	 * was discovered in. Set by the owning `AzdoFolderRepositoryManager`; models use it to
+	 * compute file changes from local git.
+	 */
+	public gitRepository: Repository | undefined;
+
+	private async getGitApiForComments(): Promise<{ gitApi: GitApi, repositoryId: string } | undefined> {
+		const repositoryId = await this.getRepositoryId();
+		if (!repositoryId) {
+			Logger.appendLine(`AzDO repository ${this.azdoRemoteInfo.repositoryName} not found in project ${this.azdoRemoteInfo.project}`, 'AzdoRepository');
+			return undefined;
+		}
+		const connection = await this.getAzdoConnection();
+		const gitApi = await connection.api.getGitApi();
+		return { gitApi, repositoryId };
+	}
+
+	/**
+	 * Fetches all comment threads of a pull request.
+	 */
+	public async getAzdoThreads(pullRequestId: number): Promise<GitPullRequestCommentThread[]> {
+		const commentsApi = await this.getGitApiForComments();
+		if (!commentsApi) {
+			return [];
+		}
+		const threads = await commentsApi.gitApi.getThreads(commentsApi.repositoryId, pullRequestId, this.azdoRemoteInfo.project);
+		return threads ?? [];
+	}
+
+	/**
+	 * Creates a new comment thread on a pull request.
+	 */
+	public async createAzdoThread(pullRequestId: number, thread: GitPullRequestCommentThread): Promise<GitPullRequestCommentThread> {
+		const commentsApi = await this.getGitApiForComments();
+		if (!commentsApi) {
+			throw new Error(vscode.l10n.t('Unable to resolve Azure DevOps repository {0}', this.azdoRemoteInfo.repositoryName));
+		}
+		return commentsApi.gitApi.createThread(thread, commentsApi.repositoryId, pullRequestId, this.azdoRemoteInfo.project);
+	}
+
+	/**
+	 * Adds a comment to an existing thread.
+	 */
+	public async createAzdoComment(pullRequestId: number, threadId: number, comment: Comment): Promise<Comment> {
+		const commentsApi = await this.getGitApiForComments();
+		if (!commentsApi) {
+			throw new Error(vscode.l10n.t('Unable to resolve Azure DevOps repository {0}', this.azdoRemoteInfo.repositoryName));
+		}
+		return commentsApi.gitApi.createComment(comment, commentsApi.repositoryId, pullRequestId, threadId, this.azdoRemoteInfo.project);
+	}
+
+	/**
+	 * Updates the status of a comment thread (e.g. resolves it as fixed).
+	 */
+	public async updateAzdoThreadStatus(pullRequestId: number, threadId: number, status: CommentThreadStatus): Promise<GitPullRequestCommentThread> {
+		const commentsApi = await this.getGitApiForComments();
+		if (!commentsApi) {
+			throw new Error(vscode.l10n.t('Unable to resolve Azure DevOps repository {0}', this.azdoRemoteInfo.repositoryName));
+		}
+		return commentsApi.gitApi.updateThread({ status }, commentsApi.repositoryId, pullRequestId, threadId, this.azdoRemoteInfo.project);
 	}
 
 	override async getDefaultBranch(): Promise<string> {

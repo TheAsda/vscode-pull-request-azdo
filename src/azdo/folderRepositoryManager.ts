@@ -10,6 +10,7 @@ import { AzdoCredentialStore } from './credentials';
 import { AzdoPullRequestGitHelper, AzdoRemoteEntry } from './pullRequestGitHelper';
 import { AzdoPullRequestModel } from './pullRequestModel';
 import { AzdoRemoteInfo, parseAzdoRemoteUrl } from './remote';
+import { convertIdentityRefToAccount } from './utils';
 import { Repository } from '../api/api';
 import { GitApiImpl } from '../api/api1';
 import { GitHubServerType } from '../common/authentication';
@@ -20,6 +21,7 @@ import { ITelemetry } from '../common/telemetry';
 import { CredentialStore } from '../github/credentials';
 import { FolderRepositoryManager, ReposManagerState } from '../github/folderRepositoryManager';
 import { GitHubRepository, PullRequestData } from '../github/githubRepository';
+import { IAccount } from '../github/interface';
 import { PullRequestGitHelper } from '../github/pullRequestGitHelper';
 import { PullRequestModel } from '../github/pullRequestModel';
 import { IThemeWatcher } from '../themeWatcher';
@@ -127,11 +129,14 @@ export class AzdoFolderRepositoryManager extends FolderRepositoryManager {
 					repo.azdoRemoteInfo.project === info.project && repo.azdoRemoteInfo.repositoryName === info.repositoryName,
 			) as AzdoRepository | undefined;
 			if (existing) {
+				existing.gitRepository = this.repository;
 				repositories.push(existing);
 				continue;
 			}
 			const gitRemote = GitHubRemote.remoteAsGitHub(remote, GitHubServerType.None);
-			repositories.push(new AzdoRepository(this._azdoRepositoryCounter++, info, gitRemote, this.repository.rootUri, this.azdoCredentialStore, this.credentialStore, this.telemetry));
+			const repository = new AzdoRepository(this._azdoRepositoryCounter++, info, gitRemote, this.repository.rootUri, this.azdoCredentialStore, this.credentialStore, this.telemetry);
+			repository.gitRepository = this.repository;
+			repositories.push(repository);
 		}
 
 		this._githubRepositories = repositories;
@@ -150,6 +155,22 @@ export class AzdoFolderRepositoryManager extends FolderRepositoryManager {
 			this._onDidChangeRepositories.fire({ added: repositoriesAdded });
 		}
 		return true;
+	}
+
+	override async getCurrentUser(githubRepository?: GitHubRepository): Promise<IAccount> {
+		const azdoRepository = githubRepository instanceof AzdoRepository
+			? githubRepository
+			: this.gitHubRepositories.find(repository => repository instanceof AzdoRepository) as AzdoRepository | undefined;
+		if (azdoRepository) {
+			const identity = await azdoRepository.getAzdoIdentity();
+			const accountProperty = (identity.properties?.['Account'] as { $value?: string } | undefined)?.$value;
+			return convertIdentityRefToAccount({
+				id: identity.id,
+				displayName: identity.customDisplayName || identity.providerDisplayName,
+				uniqueName: accountProperty,
+			}, azdoRepository.azdoRemoteInfo.orgUrl);
+		}
+		return super.getCurrentUser(githubRepository);
 	}
 
 	/**

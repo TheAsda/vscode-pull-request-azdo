@@ -177,9 +177,9 @@ export class PullRequestModel extends IssueModel<PullRequest> implements IPullRe
 	private _onDidChangePendingReviewState: vscode.EventEmitter<boolean> = this._register(new vscode.EventEmitter<boolean>());
 	public onDidChangePendingReviewState = this._onDidChangePendingReviewState.event;
 
-	private _reviewThreadsCache: IReviewThread[] | undefined;
-	private _reviewThreadsCacheInitialized = false;
-	private _onDidChangeReviewThreads = this._register(new vscode.EventEmitter<ReviewThreadChangeEvent>());
+	protected _reviewThreadsCache: IReviewThread[] | undefined;
+	protected _reviewThreadsCacheInitialized = false;
+	protected _onDidChangeReviewThreads = this._register(new vscode.EventEmitter<ReviewThreadChangeEvent>());
 	public onDidChangeReviewThreads = this._onDidChangeReviewThreads.event;
 
 	private _fileChangeViewedState: FileViewedState = {};
@@ -1548,7 +1548,7 @@ export class PullRequestModel extends IssueModel<PullRequest> implements IPullRe
 		this._onDidChange.fire({ reviewers: true });
 	}
 
-	private diffThreads(oldReviewThreads: IReviewThread[], newReviewThreads: IReviewThread[]): void {
+	protected diffThreads(oldReviewThreads: IReviewThread[], newReviewThreads: IReviewThread[]): void {
 		const added: IReviewThread[] = [];
 		const changed: IReviewThread[] = [];
 		const removed: IReviewThread[] = [];
@@ -2102,7 +2102,7 @@ export class PullRequestModel extends IssueModel<PullRequest> implements IPullRe
 		);
 	}
 
-	private _fileChanges: Map<string, SlimFileChange | InMemFileChange> = new Map();
+	protected _fileChanges: Map<string, SlimFileChange | InMemFileChange> = new Map();
 	get fileChanges(): Map<string, SlimFileChange | InMemFileChange> {
 		return this._fileChanges;
 	}
