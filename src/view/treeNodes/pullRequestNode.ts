@@ -5,7 +5,11 @@
 
 import * as vscode from 'vscode';
 import { CategoryTreeNode } from './categoryNode';
+import { DirectoryTreeNode } from './directoryTreeNode';
+import { InMemFileChangeNode, RemoteFileChangeNode } from './fileChangeNode';
+import { TreeNode, TreeNodeParent } from './treeNode';
 import { Repository } from '../../api/api';
+import { AzdoPullRequestModel } from '../../azdo/pullRequestModel';
 import { COPILOT_ACCOUNTS } from '../../common/comment';
 import { getCommentingRanges } from '../../common/commentingRanges';
 import { InMemFileChange, SlimFileChange } from '../../common/file';
@@ -17,14 +21,11 @@ import { CopilotWorkingStatus } from '../../github/githubRepository';
 import { GithubItemStateEnum } from '../../github/interface';
 import { IResolvedPullRequestModel, PullRequestModel } from '../../github/pullRequestModel';
 import { isStackablePullRequest } from '../../github/pullRequestStack';
+import { NotificationsManager } from '../../notifications/notificationsManager';
 import { InMemFileChangeModel, RemoteFileChangeModel } from '../fileChangeModel';
 import { getInMemPRFileSystemProvider, provideDocumentContentForChangeModel } from '../inMemPRContentProvider';
-import { getIconForeground, getListErrorForeground, getListWarningForeground, getNotebookStatusSuccessIconForeground } from '../theme';
-import { DirectoryTreeNode } from './directoryTreeNode';
-import { InMemFileChangeNode, RemoteFileChangeNode } from './fileChangeNode';
-import { TreeNode, TreeNodeParent } from './treeNode';
-import { NotificationsManager } from '../../notifications/notificationsManager';
 import { PrsTreeModel } from '../prsTreeModel';
+import { getIconForeground, getListErrorForeground, getListWarningForeground, getNotebookStatusSuccessIconForeground } from '../theme';
 
 export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 {
 	static ID = 'PRNode';
@@ -368,6 +369,7 @@ export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 
 		const currentBranchIsForThisPR = this.pullRequestModel.equals(this._folderReposManager.activePullRequest);
 		const { title, number, author, isDraft, html_url } = this.pullRequestModel;
 		const login = author.specialDisplayName ?? author.login;
+		const isAzdoPullRequest = this.pullRequestModel instanceof AzdoPullRequestModel;
 		const hasNotification = this._notificationProvider.hasNotification(this.pullRequestModel) || this._prsTreeModel.hasCopilotNotification(this.pullRequestModel.remote.owner, this.pullRequestModel.remote.repositoryName, this.pullRequestModel.number);
 		const label: vscode.TreeItemLabel2 = {
 			label: new vscode.MarkdownString(this._getLabel(), true)
@@ -390,12 +392,14 @@ export class PRNode extends TreeNode implements vscode.CommentingRangeProvider2 
 				(currentBranchIsForThisPR ? ':active' : ':nonactive') +
 				(hasNotification ? ':notification' : '') +
 				(((this.pullRequestModel.item.isRemoteHeadDeleted && !this._isLocal) || !this._folderReposManager.isPullRequestAssociatedWithOpenRepository(this.pullRequestModel)) ? '' : ':hasHeadRef') +
-				(isStackablePullRequest(this.pullRequestModel) ? ':stackable' : ''),
+				(isStackablePullRequest(this.pullRequestModel) ? ':stackable' : '') +
+				(isAzdoPullRequest ? ':azdo' : ''),
 			iconPath: await this._getIcon(),
 			accessibilityInformation: {
 				label: `${isDraft ? 'Draft ' : ''}Pull request number ${number}: ${title} by ${login}`
 			},
 			resourceUri: createPRNodeUri(this.pullRequestModel, this.parent instanceof CategoryTreeNode && this.parent.isCopilot ? true : undefined),
+			tooltip: isAzdoPullRequest ? (this.pullRequestModel as AzdoPullRequestModel).getVoteSummary() || undefined : undefined,
 			command
 		};
 	}

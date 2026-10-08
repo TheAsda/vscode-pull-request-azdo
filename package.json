@@ -1963,6 +1963,31 @@
 				"command": "pr.generateTitleAndDescription",
 				"title": "%command.pr.generateTitleAndDescription.title%",
 				"category": "%command.pull.request.category%"
+			},
+			{
+				"command": "azdo.pr.approve",
+				"title": "%command.azdo.pr.approve.title%",
+				"category": "%command.pull.request.category%"
+			},
+			{
+				"command": "azdo.pr.approveWithSuggestions",
+				"title": "%command.azdo.pr.approveWithSuggestions.title%",
+				"category": "%command.pull.request.category%"
+			},
+			{
+				"command": "azdo.pr.waitingForAuthor",
+				"title": "%command.azdo.pr.waitingForAuthor.title%",
+				"category": "%command.pull.request.category%"
+			},
+			{
+				"command": "azdo.pr.reject",
+				"title": "%command.azdo.pr.reject.title%",
+				"category": "%command.pull.request.category%"
+			},
+			{
+				"command": "azdo.pr.resetVote",
+				"title": "%command.azdo.pr.resetVote.title%",
+				"category": "%command.pull.request.category%"
 			}
 		],
 		"viewsWelcome": [
@@ -2814,6 +2839,26 @@
 				{
 					"command": "pr.generateTitleAndDescription",
 					"when": "false"
+				},
+				{
+					"command": "azdo.pr.approve",
+					"when": "false"
+				},
+				{
+					"command": "azdo.pr.approveWithSuggestions",
+					"when": "false"
+				},
+				{
+					"command": "azdo.pr.waitingForAuthor",
+					"when": "false"
+				},
+				{
+					"command": "azdo.pr.reject",
+					"when": "false"
+				},
+				{
+					"command": "azdo.pr.resetVote",
+					"when": "false"
 				}
 			],
 			"view/title": [
@@ -3241,6 +3286,36 @@
 				{
 					"command": "issue.editQuery",
 					"when": "(view == issues:github && viewItem == query) && !isSessionsWindow"
+				},
+				{
+					"command": "azdo.pr.approve",
+					"when": "view == prView && viewItem =~ /^pullrequest.*:azdo/",
+					"group": "navigation@1",
+					"submenu": "azdo.pr.vote"
+				},
+				{
+					"command": "azdo.pr.approveWithSuggestions",
+					"when": "view == prView && viewItem =~ /^pullrequest.*:azdo/",
+					"group": "navigation@2",
+					"submenu": "azdo.pr.vote"
+				},
+				{
+					"command": "azdo.pr.waitingForAuthor",
+					"when": "view == prView && viewItem =~ /^pullrequest.*:azdo/",
+					"group": "navigation@3",
+					"submenu": "azdo.pr.vote"
+				},
+				{
+					"command": "azdo.pr.reject",
+					"when": "view == prView && viewItem =~ /^pullrequest.*:azdo/",
+					"group": "navigation@4",
+					"submenu": "azdo.pr.vote"
+				},
+				{
+					"command": "azdo.pr.resetVote",
+					"when": "view == prView && viewItem =~ /^pullrequest.*:azdo/",
+					"group": "navigation@5",
+					"submenu": "azdo.pr.vote"
 				}
 			],
 			"commentsView/commentThread/context": [
@@ -4260,6 +4335,12 @@
 						"threadId"
 					]
 				}
+			}
+		],
+		"submenus": [
+			{
+				"id": "azdo.pr.vote",
+				"label": "%submenu.azdo.vote.title%"
 			}
 		]
 	},

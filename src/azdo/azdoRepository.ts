@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { GitApi } from 'azure-devops-node-api/GitApi';
-import { Comment, CommentThreadStatus, GitPullRequest, GitPullRequestCommentThread, GitPullRequestSearchCriteria, GitRepository, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
+import { Comment, CommentThreadStatus, GitPullRequest, GitPullRequestCommentThread, GitPullRequestSearchCriteria, GitRepository, IdentityRefWithVote, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import { Identity } from 'azure-devops-node-api/interfaces/IdentitiesInterfaces';
 import * as vscode from 'vscode';
 import { AzdoConnection } from './azdoApi';
@@ -276,6 +276,30 @@ export class AzdoRepository extends GitHubRepository {
 			throw new Error(vscode.l10n.t('Unable to resolve Azure DevOps repository {0}', this.azdoRemoteInfo.repositoryName));
 		}
 		return commentsApi.gitApi.updateThread({ status }, commentsApi.repositoryId, pullRequestId, threadId, this.azdoRemoteInfo.project);
+	}
+
+	/**
+	 * Fetches all reviewers with their current votes for a pull request.
+	 */
+	public async getAzdoReviewers(pullRequestId: number): Promise<IdentityRefWithVote[]> {
+		const commentsApi = await this.getGitApiForComments();
+		if (!commentsApi) {
+			return [];
+		}
+		const reviewers = await commentsApi.gitApi.getPullRequestReviewers(commentsApi.repositoryId, pullRequestId, this.azdoRemoteInfo.project);
+		return reviewers ?? [];
+	}
+
+	/**
+	 * Submits a vote (10 approved, 5 approved with suggestions, 0 no vote, -5 waiting for
+	 * author, -10 rejected) on behalf of the signed-in user.
+	 */
+	public async submitAzdoVote(pullRequestId: number, reviewerId: string, vote: number): Promise<IdentityRefWithVote> {
+		const commentsApi = await this.getGitApiForComments();
+		if (!commentsApi) {
+			throw new Error(vscode.l10n.t('Unable to resolve Azure DevOps repository {0}', this.azdoRemoteInfo.repositoryName));
+		}
+		return commentsApi.gitApi.createPullRequestReviewer({ vote }, commentsApi.repositoryId, pullRequestId, reviewerId, this.azdoRemoteInfo.project);
 	}
 
 	override async getDefaultBranch(): Promise<string> {

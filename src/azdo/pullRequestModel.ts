@@ -3,13 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { CommentType, GitPullRequest, GitPullRequestCommentThread } from 'azure-devops-node-api/interfaces/GitInterfaces';
+import { CommentType, GitPullRequest, GitPullRequestCommentThread, IdentityRefWithVote } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import * as vscode from 'vscode';
 import { AzdoRepository } from './azdoRepository';
 import { AzdoRemoteInfo } from './remote';
 import {
 	convertAzdoPullRequestToItem,
 	convertAzdoThreadToReviewThread,
+	formatAzdoVoteSummary,
 	parseAzdoCommentNodeId,
 	parseAzdoThreadId,
 } from './utils';
@@ -345,6 +346,56 @@ export class AzdoPullRequestModel extends PullRequestModel {
 	 */
 	override async initializePullRequestFileViewState(): Promise<void> {
 		// no-op
+	}
+
+	// #endregion
+
+	// #region Reviewer votes
+
+	/**
+	 * Refreshes the retained reviewers (and their votes) from the service.
+	 */
+	public async refreshAzdoReviewers(): Promise<IdentityRefWithVote[]> {
+		const azdoRepository = this.azdoRepository;
+		if (!azdoRepository) {
+			return [];
+		}
+		const reviewers = await azdoRepository.getAzdoReviewers(this.number);
+		this.azdoItem = { ...this.azdoItem, reviewers };
+		return reviewers;
+	}
+
+	/**
+	 * Submits a vote on behalf of the signed-in user and updates the retained reviewers.
+	 */
+	public async submitVote(vote: number): Promise<IdentityRefWithVote | undefined> {
+		const azdoRepository = this.azdoRepository;
+		if (!azdoRepository) {
+			return undefined;
+		}
+		const identity = await azdoRepository.getAzdoIdentity();
+		if (!identity?.id) {
+			throw new Error(vscode.l10n.t('Not signed in to Azure DevOps organization {0}', azdoRepository.azdoRemoteInfo.orgUrl));
+		}
+		const result = await azdoRepository.submitAzdoVote(this.number, identity.id, vote);
+		// Merge the returned vote into the retained reviewers so tooltips stay current.
+		const reviewers = [...(this.azdoItem.reviewers ?? [])];
+		const index = reviewers.findIndex(reviewer => reviewer.id === identity.id);
+		if (index >= 0) {
+			reviewers[index] = { ...reviewers[index], vote: result.vote };
+		} else {
+			reviewers.push(result);
+		}
+		this.azdoItem = { ...this.azdoItem, reviewers };
+		this._onDidChange.fire({ timeline: true });
+		return result;
+	}
+
+	/**
+	 * Multi-line vote summary for tree tooltips. Empty when no reviewer has voted.
+	 */
+	public getVoteSummary(): string {
+		return formatAzdoVoteSummary(this.azdoItem.reviewers ?? []);
 	}
 
 	// #endregion

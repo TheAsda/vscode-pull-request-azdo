@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IdentityRef } from 'azure-devops-node-api/interfaces/common/VSSInterfaces';
-import { Comment, CommentThreadStatus, GitPullRequest, GitPullRequestCommentThread, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
+import { Comment, CommentThreadStatus, GitPullRequest, GitPullRequestCommentThread, IdentityRefWithVote, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import { AzdoRemoteInfo } from './remote';
 import type { AccountType, IAccount, IGitHubRef, PullRequest } from '../github/interface';
 
@@ -329,6 +329,80 @@ export function convertAzdoThreadToReviewThread(
 
 function getAzdoPrNumberFromThread(thread: GitPullRequestCommentThread): number {
 	return (thread as unknown as { pullRequestId?: number }).pullRequestId ?? 0;
+}
+
+// #endregion
+
+// #region Reviewer votes
+
+/** AzDO reviewer vote values (`IdentityRefWithVote.vote`). */
+export const AZDO_VOTE = {
+	APPROVED: 10,
+	APPROVED_WITH_SUGGESTIONS: 5,
+	NO_VOTE: 0,
+	WAITING_FOR_AUTHOR: -5,
+	REJECTED: -10,
+} as const;
+
+export interface AzdoVoteSummary {
+	approved: string[];
+	approvedWithSuggestions: string[];
+	waitingForAuthor: string[];
+	rejected: string[];
+	noVote: string[];
+}
+
+/**
+ * Groups reviewer display names by their vote. Group reviewers (teams) are excluded:
+ * they carry no direct vote (`votedFor` roll-ups are flattened into individual reviewers
+ * by the API where applicable).
+ */
+export function summarizeAzdoVotes(reviewers: IdentityRefWithVote[]): AzdoVoteSummary {
+	const summary: AzdoVoteSummary = { approved: [], approvedWithSuggestions: [], waitingForAuthor: [], rejected: [], noVote: [] };
+	for (const reviewer of reviewers) {
+		const name = reviewer.displayName || reviewer.uniqueName || reviewer.id || 'unknown';
+		const isGroup = reviewer.isContainer === true;
+		if (isGroup) {
+			continue;
+		}
+		switch (reviewer.vote) {
+			case AZDO_VOTE.APPROVED:
+				summary.approved.push(name);
+				break;
+			case AZDO_VOTE.APPROVED_WITH_SUGGESTIONS:
+				summary.approvedWithSuggestions.push(name);
+				break;
+			case AZDO_VOTE.WAITING_FOR_AUTHOR:
+				summary.waitingForAuthor.push(name);
+				break;
+			case AZDO_VOTE.REJECTED:
+				summary.rejected.push(name);
+				break;
+			default:
+				summary.noVote.push(name);
+				break;
+		}
+	}
+	return summary;
+}
+
+/**
+ * One-line vote summary for tree tooltips, e.g. `Approved: Ada, Ben · Waiting: Cy`.
+ * Returns an empty string when nobody has voted.
+ */
+export function formatAzdoVoteSummary(reviewers: IdentityRefWithVote[]): string {
+	const summary = summarizeAzdoVotes(reviewers);
+	const parts: string[] = [];
+	if (summary.approved.length || summary.approvedWithSuggestions.length) {
+		parts.push(`Approved: ${[...summary.approved, ...summary.approvedWithSuggestions].join(', ')}`);
+	}
+	if (summary.waitingForAuthor.length) {
+		parts.push(`Waiting for author: ${summary.waitingForAuthor.join(', ')}`);
+	}
+	if (summary.rejected.length) {
+		parts.push(`Rejected: ${summary.rejected.join(', ')}`);
+	}
+	return parts.join('\n');
 }
 
 // #endregion

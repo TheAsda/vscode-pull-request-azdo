@@ -12,6 +12,7 @@ import { GitApiImpl } from './api/api1';
 import { AzdoCredentialStore } from './azdo/credentials';
 import { AzdoFolderRepositoryManager } from './azdo/folderRepositoryManager';
 import { azdoGates } from './azdo/gates';
+import { registerAzdoVoteCommands } from './azdo/voteCommands';
 import { registerCommands } from './commands';
 import { AuthProvider } from './common/authentication';
 import { commands, contexts } from './common/executeCommands';
@@ -268,6 +269,7 @@ async function init(
 	context.subscriptions.push(folderRepositoryManagerResolver);
 
 	registerCommands(context, reposManager, reviewsManager, telemetry, copilotRemoteAgentManager, notificationsManager, prsTreeModel, tree, folderRepositoryManagerResolver);
+	registerAzdoVoteCommands(context, telemetry);
 
 	const layout = vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<string>(FILE_LIST_LAYOUT);
 	await vscode.commands.executeCommand('setContext', 'fileListLayout:flat', layout === 'flat');

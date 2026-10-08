@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { default as assert } from 'assert';
-import { Comment, CommentThreadStatus, CommentType, GitPullRequest, GitPullRequestCommentThread, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
+import { Comment, CommentThreadStatus, CommentType, GitPullRequest, GitPullRequestCommentThread, IdentityRefWithVote, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import { parseAzdoRemoteUrl } from '../../azdo/remote';
 import {
 	absolutizeAvatarUrl,
@@ -15,9 +15,11 @@ import {
 	convertAzdoThreadToReviewThread,
 	convertBranchRefToBranchName,
 	convertIdentityRefToAccount,
+	formatAzdoVoteSummary,
 	getAzdoThreadPosition,
 	parseAzdoCommentNodeId,
 	parseAzdoThreadId,
+	summarizeAzdoVotes,
 } from '../../azdo/utils';
 
 const REMOTE = parseAzdoRemoteUrl('https://dev.azure.com/contoso/MyProject/_git/MyRepo')!;
@@ -229,6 +231,53 @@ describe('azdo converters', () => {
 			assert.strictEqual(position.subjectType, 'FILE');
 			assert.strictEqual(position.startLine, 0);
 			assert.strictEqual(position.endLine, 0);
+		});
+	});
+
+	describe('reviewer votes', () => {
+		const reviewer = (name: string, vote: number, isContainer = false): IdentityRefWithVote => ({
+			displayName: name,
+			uniqueName: `${name.toLowerCase()}@contoso.com`,
+			id: name.toLowerCase(),
+			vote,
+			isContainer,
+		});
+
+		it('groups votes by value', () => {
+			const summary = summarizeAzdoVotes([
+				reviewer('Ada', 10),
+				reviewer('Ben', 5),
+				reviewer('Cy', -5),
+				reviewer('Dee', -10),
+				reviewer('Eve', 0),
+			]);
+			assert.deepStrictEqual(summary.approved, ['Ada']);
+			assert.deepStrictEqual(summary.approvedWithSuggestions, ['Ben']);
+			assert.deepStrictEqual(summary.waitingForAuthor, ['Cy']);
+			assert.deepStrictEqual(summary.rejected, ['Dee']);
+			assert.deepStrictEqual(summary.noVote, ['Eve']);
+		});
+
+		it('excludes group reviewers', () => {
+			const summary = summarizeAzdoVotes([
+				reviewer('[Team]', 10, true),
+				reviewer('Ada', 10),
+			]);
+			assert.deepStrictEqual(summary.approved, ['Ada']);
+		});
+
+		it('formats a compact summary', () => {
+			const text = formatAzdoVoteSummary([
+				reviewer('Ada', 10),
+				reviewer('Ben', 5),
+				reviewer('Cy', -5),
+			]);
+			assert.strictEqual(text, 'Approved: Ada, Ben\nWaiting for author: Cy');
+		});
+
+		it('returns empty summary when nobody voted', () => {
+			assert.strictEqual(formatAzdoVoteSummary([reviewer('Ada', 0)]), '');
+			assert.strictEqual(formatAzdoVoteSummary([]), '');
 		});
 	});
 

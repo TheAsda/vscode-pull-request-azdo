@@ -466,5 +466,11 @@
 	"languageModelTools.github-pull-request_resolveReviewThread.displayName": "Resolve Review Thread",
 	"languageModelTools.github-pull-request_resolveReviewThread.description": "Resolve a review thread on the active GitHub pull request.",
 	"languageModelTools.github-pull-request_create_pull_request.displayName": "Create a GitHub pull request",
-	"languageModelTools.github-pull-request_create_pull_request.description": "Create a new GitHub pull request with a title, head branch, and optional body, base branch, and draft flag."
+	"languageModelTools.github-pull-request_create_pull_request.description": "Create a new GitHub pull request with a title, head branch, and optional body, base branch, and draft flag.",
+	"command.azdo.pr.approve.title": "Approve Pull Request (Azure DevOps)",
+	"command.azdo.pr.approveWithSuggestions.title": "Approve with Suggestions (Azure DevOps)",
+	"command.azdo.pr.waitingForAuthor.title": "Vote: Waiting for Author (Azure DevOps)",
+	"command.azdo.pr.reject.title": "Reject Pull Request (Azure DevOps)",
+	"command.azdo.pr.resetVote.title": "Remove My Vote (Azure DevOps)",
+	"submenu.azdo.vote.title": "Vote (Azure DevOps)"
 }
