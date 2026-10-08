@@ -1,6 +1,6 @@
 {
-	"displayName": "GitHub Pull Requests",
-	"description": "Pull Request and Issue Provider for GitHub",
+	"displayName": "Azure DevOps Pull Requests",
+	"description": "Pull Request Provider for Azure DevOps",
 	"githubPullRequests.pullRequestDescription.description": "The description used when creating pull requests.",
 	"githubPullRequests.experimental.stacks.description": "Enable experimental pull request stack features. Reload the window to apply changes to multi-selection in the Pull Requests view.",
 	"githubPullRequests.pullRequestDescription.template": "Use a pull request template and commit description, or just use the commit description if no templates were found.",

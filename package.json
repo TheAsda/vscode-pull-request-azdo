@@ -1,14 +1,14 @@
 {
-	"name": "vscode-pull-request-github",
+	"name": "vscode-pull-request-azdo",
 	"displayName": "%displayName%",
 	"description": "%description%",
 	"icon": "resources/icons/github_logo.png",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/Microsoft/vscode-pull-request-github"
+		"url": "https://github.com/TheAsda/vscode-pull-request-azdo"
 	},
 	"bugs": {
-		"url": "https://github.com/Microsoft/vscode-pull-request-github/issues"
+		"url": "https://github.com/TheAsda/vscode-pull-request-azdo/issues"
 	},
 	"enabledApiProposals": [
 		"activeComment",
@@ -46,7 +46,7 @@
 		"treeViewMarkdownMessage"
 	],
 	"version": "0.168.0",
-	"publisher": "GitHub",
+	"publisher": "TheAsda",
 	"engines": {
 		"node": ">=20",
 		"vscode": "^1.141.0"
