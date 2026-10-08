@@ -317,7 +317,8 @@ export class ReviewManager extends Disposable {
 	}
 
 	private registerQuickDiff() {
-		if (vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<boolean>(QUICK_DIFF)) {
+		// quickDiffProvider is a proposed API and is absent on stable VS Code.
+		if (vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<boolean>(QUICK_DIFF) && typeof vscode.window.registerQuickDiffProvider === 'function') {
 			if (this._quickDiffProvider) {
 				this._quickDiffProvider.dispose();
 				this._quickDiffProvider = undefined;
@@ -946,8 +947,9 @@ export class ReviewManager extends Disposable {
 		const closePromises: Promise<boolean>[] = [];
 		for (const tabGroup of vscode.window.tabGroups.all) {
 			for (const tab of tabGroup.tabs) {
-				// Check if this is a TabInputTextMultiDiff with matching label
-				if (tab.input instanceof vscode.TabInputTextMultiDiff && tab.label.startsWith(multiDiffLabel)) {
+				// Check if this is a TabInputTextMultiDiff with matching label. tabInputMultiDiff is a
+				// proposed API, so the class may be absent on stable VS Code.
+				if (typeof vscode.TabInputTextMultiDiff !== 'undefined' && tab.input instanceof vscode.TabInputTextMultiDiff && tab.label.startsWith(multiDiffLabel)) {
 					Logger.appendLine(`Closing outdated multidiff editor for PR #${pullRequest.number}`, this.id);
 					closePromises.push(Promise.resolve(vscode.window.tabGroups.close(tab)));
 				}

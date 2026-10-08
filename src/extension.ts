@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import { LiveShare } from 'vsls/vscode.js';
 import { PostCommitCommandsProvider, Repository } from './api/api';
 import { GitApiImpl } from './api/api1';
+import { azdoGates } from './azdo/gates';
 import { registerCommands } from './commands';
 import { AuthProvider } from './common/authentication';
 import { commands, contexts } from './common/executeCommands';
@@ -269,10 +270,14 @@ async function init(
 	const layout = vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<string>(FILE_LIST_LAYOUT);
 	await vscode.commands.executeCommand('setContext', 'fileListLayout:flat', layout === 'flat');
 
-	const issueStateManager = new StateManager(git, reposManager, context);
-	const issuesFeatures = new IssueFeatureRegistrar(git, reposManager, reviewsManager, context, telemetry, issueStateManager);
-	context.subscriptions.push(issuesFeatures);
-	await issuesFeatures.initialize();
+	// AzDO gate: GitHub Issues surface stays dormant until its slice (route plan S1).
+	let issueStateManager: StateManager | undefined;
+	if (azdoGates.issues) {
+		issueStateManager = new StateManager(git, reposManager, context);
+		const issuesFeatures = new IssueFeatureRegistrar(git, reposManager, reviewsManager, context, telemetry, issueStateManager);
+		context.subscriptions.push(issuesFeatures);
+		await issuesFeatures.initialize();
+	}
 
 	context.subscriptions.push(credentialStore.onDidChangeSessions(async e => {
 		if (e.provider.id !== AuthProvider.github && e.provider.id !== AuthProvider.githubEnterprise) {
@@ -285,7 +290,7 @@ async function init(
 			activePrViewCoordinator.clearForAuthChange();
 			createPrHelper.clearForAuthChange();
 			const reviewsCleanup = reviewsManager.clearForAuthChange();
-			issueStateManager.clearForAuthChange();
+			issueStateManager?.clearForAuthChange();
 			notificationsManager.clear();
 			reposManager.clearForAuthChange();
 			await reviewsCleanup;
@@ -293,20 +298,28 @@ async function init(
 		await reposManager.refreshRepositories();
 		await Promise.all(reviewsManager.reviewManagers.map(reviewManager => reviewManager.updateState(true)));
 		reviewsManager.refreshPullRequestsTree(!clearAuthState);
-		await issueStateManager.refreshAfterAuthChange();
+		await issueStateManager?.refreshAfterAuthChange();
 		notificationsManager.refresh();
 	}));
 
-	const pullRequestContextProvider = new PullRequestContextProvider(prsTreeModel, reposManager, context);
-	context.subscriptions.push(pullRequestContextProvider);
-	context.subscriptions.push(vscode.chat.registerChatAttachContextProvider('githubpr', pullRequestContextProvider));
-	context.subscriptions.push(vscode.chat.registerChatTabContextProvider({ uri: { scheme: 'webview-panel', pattern: '**/webview-PullRequestOverview**' } }, 'githubpr', pullRequestContextProvider));
-	const issueContextProvider = new IssueContextProvider(issueStateManager, reposManager, context);
-	context.subscriptions.push(vscode.chat.registerChatAttachContextProvider('githubissue', issueContextProvider));
-	context.subscriptions.push(vscode.chat.registerChatTabContextProvider({ uri: { scheme: 'webview-panel', pattern: '**/webview-IssueOverview**' } }, 'githubissue', issueContextProvider));
+	// AzDO gate: chat context providers are proposed APIs (chatContextProvider) and are
+	// absent on stable VS Code; they also belong to the dormant chat surface.
+	if (azdoGates.chat && typeof vscode.chat.registerChatAttachContextProvider === 'function'
+		&& typeof vscode.chat.registerChatTabContextProvider === 'function' && issueStateManager) {
+		const pullRequestContextProvider = new PullRequestContextProvider(prsTreeModel, reposManager, context);
+		context.subscriptions.push(pullRequestContextProvider);
+		context.subscriptions.push(vscode.chat.registerChatAttachContextProvider('githubpr', pullRequestContextProvider));
+		context.subscriptions.push(vscode.chat.registerChatTabContextProvider({ uri: { scheme: 'webview-panel', pattern: '**/webview-PullRequestOverview**' } }, 'githubpr', pullRequestContextProvider));
+		const issueContextProvider = new IssueContextProvider(issueStateManager, reposManager, context);
+		context.subscriptions.push(vscode.chat.registerChatAttachContextProvider('githubissue', issueContextProvider));
+		context.subscriptions.push(vscode.chat.registerChatTabContextProvider({ uri: { scheme: 'webview-panel', pattern: '**/webview-IssueOverview**' } }, 'githubissue', issueContextProvider));
+	}
 
-	const notificationsFeatures = new NotificationsFeatureRegister(credentialStore, reposManager, telemetry, notificationsManager);
-	context.subscriptions.push(notificationsFeatures);
+	// AzDO gate: GitHub notifications view/commands stay dormant (route plan S1).
+	if (azdoGates.notifications) {
+		const notificationsFeatures = new NotificationsFeatureRegister(credentialStore, reposManager, telemetry, notificationsManager);
+		context.subscriptions.push(notificationsFeatures);
+	}
 
 	context.subscriptions.push(new GitLensIntegration());
 
@@ -331,6 +344,10 @@ async function init(
 }
 
 function initChat(context: vscode.ExtensionContext, credentialStore: CredentialStore, reposManager: RepositoriesManager) {
+	// AzDO gate: Copilot chat/LM tools stay dormant (route plan S1).
+	if (!azdoGates.chat) {
+		return;
+	}
 	const chatEnabled = () => vscode.workspace.getConfiguration(PR_SETTINGS_NAMESPACE).get<boolean>(EXPERIMENTAL_CHAT, false);
 	if (chatEnabled()) {
 		registerTools(context, credentialStore, reposManager);

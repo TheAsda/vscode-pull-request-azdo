@@ -23,6 +23,10 @@ class GitHubIssueOrPullRequestExternalUriOpener extends Disposable implements vs
 		private readonly _telemetry: ITelemetry,
 	) {
 		super();
+		// externalUriOpener is a proposed API and is absent on stable VS Code.
+		if (typeof vscode.window.registerExternalUriOpener !== 'function') {
+			return;
+		}
 		this._register(vscode.window.registerExternalUriOpener(`${EXTENSION_ID}.issueOrPullRequest`, this, {
 			schemes: ['http', 'https'],
 			label: vscode.l10n.t('Open GitHub Issue or Pull Request'),

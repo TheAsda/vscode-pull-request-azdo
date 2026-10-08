@@ -8,6 +8,7 @@ import { CopilotPRWatcher } from './copilotPrWatcher';
 
 import { CredentialStore } from './credentials';
 import { RepositoriesManager } from './repositoriesManager';
+import { azdoGates } from '../azdo/gates';
 import { COPILOT_CLOUD_AGENT } from '../common/copilot';
 import { Disposable } from '../common/lifecycle';
 import { ITelemetry } from '../common/telemetry';
@@ -48,6 +49,9 @@ export class CopilotRemoteAgentManager extends Disposable {
 	) {
 		super();
 
-		this._register(new CopilotPRWatcher(this.repositoriesManager, this.prsTreeModel));
+		// AzDO gate: Copilot remote coding agents stay dormant (route plan S1).
+		if (azdoGates.copilotRemoteAgents) {
+			this._register(new CopilotPRWatcher(this.repositoriesManager, this.prsTreeModel));
+		}
 	}
 }
