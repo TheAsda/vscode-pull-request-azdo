@@ -193,8 +193,8 @@ export class FolderRepositoryManager extends Disposable {
 	private _state: ReposManagerState = ReposManagerState.Initializing;
 	private _activePullRequest?: PullRequestModel;
 	private _activeIssue?: IssueModel;
-	private _githubRepositories: GitHubRepository[];
-	private _allGitHubRemotes: GitHubRemote[] = [];
+	protected _githubRepositories: GitHubRepository[];
+	protected _allGitHubRemotes: GitHubRemote[] = [];
 	private _mentionableUsers?: { [key: string]: IAccount[] };
 	private _fetchMentionableUsersPromise?: Promise<{ [key: string]: IAccount[] }>;
 	private _assignableUsers?: { [key: string]: IAccount[] };
@@ -215,13 +215,13 @@ export class FolderRepositoryManager extends Disposable {
 	private _onDidLoadRepositories = this._register(new vscode.EventEmitter<ReposManagerState>());
 	readonly onDidLoadRepositories: vscode.Event<ReposManagerState> = this._onDidLoadRepositories.event;
 
-	private _onDidChangeRepositories = this._register(new vscode.EventEmitter<{ added: boolean }>());
+	protected _onDidChangeRepositories = this._register(new vscode.EventEmitter<{ added: boolean }>());
 	readonly onDidChangeRepositories: vscode.Event<{ added: boolean }> = this._onDidChangeRepositories.event;
 
 	private _onDidChangeAssignableUsers = this._register(new vscode.EventEmitter<IAccount[]>());
 	readonly onDidChangeAssignableUsers: vscode.Event<IAccount[]> = this._onDidChangeAssignableUsers.event;
 
-	private _onDidChangeGithubRepositories = this._register(new vscode.EventEmitter<GitHubRepository[]>());
+	protected _onDidChangeGithubRepositories = this._register(new vscode.EventEmitter<GitHubRepository[]>());
 	readonly onDidChangeGithubRepositories: vscode.Event<GitHubRepository[]> = this._onDidChangeGithubRepositories.event;
 
 	private _onDidChangePullRequestsEvents: vscode.Disposable[] = [];
@@ -518,7 +518,7 @@ export class FolderRepositoryManager extends Disposable {
 		this._updatingRepositories = undefined;
 	}
 
-	private set state(state: ReposManagerState) {
+	protected set state(state: ReposManagerState) {
 		if (state !== this._state) {
 			this._state = state;
 			this._onDidLoadRepositories.fire(state);

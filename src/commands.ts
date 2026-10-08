@@ -8,6 +8,8 @@ import * as pathLib from 'path';
 import * as vscode from 'vscode';
 import { Repository } from './api/api';
 import { GitErrorCodes } from './api/api1';
+import { AzdoFolderRepositoryManager } from './azdo/folderRepositoryManager';
+import { AzdoPullRequestModel } from './azdo/pullRequestModel';
 import { CommentReply, findActiveHandler, resolveCommentHandler } from './commentHandlerResolver';
 import { commands } from './common/executeCommands';
 import Logger from './common/logger';
@@ -1117,6 +1119,12 @@ export function registerCommands(
 			return;
 		}
 
+		if (issueModel instanceof AzdoPullRequestModel) {
+			// Azure DevOps descriptions open in the browser until the overview webview slice.
+			await vscode.env.openExternal(vscode.Uri.parse(issueModel.html_url));
+			return;
+		}
+
 		const folderManager = folderRepositoryManagerResolver.getManagerForRepository(
 			issueModel.remote.owner,
 			issueModel.remote.repositoryName,
@@ -1236,9 +1244,22 @@ export function registerCommands(
 		}),
 	);
 
+	const azdoSignIn = async (): Promise<boolean> => {
+		const azdoManagers = reposManager.folderManagers.filter(
+			(manager): manager is AzdoFolderRepositoryManager => manager instanceof AzdoFolderRepositoryManager && manager.hasAzdoRemotes(),
+		);
+		if (!azdoManagers.length) {
+			return false;
+		}
+		const results = await Promise.all(azdoManagers.map(manager => manager.signIn()));
+		return results.every(result => result);
+	};
+
 	context.subscriptions.push(
 		vscode.commands.registerCommand('pr.signin', async () => {
-			await reposManager.authenticate();
+			if (!(await azdoSignIn())) {
+				await reposManager.authenticate();
+			}
 		}),
 	);
 
@@ -1268,7 +1289,9 @@ export function registerCommands(
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('pr.signinAndRefreshList', async () => {
-			if (await reposManager.authenticate()) {
+			if (await azdoSignIn()) {
+				vscode.commands.executeCommand('pr.refreshList');
+			} else if (await reposManager.authenticate()) {
 				vscode.commands.executeCommand('pr.refreshList');
 			}
 		}),

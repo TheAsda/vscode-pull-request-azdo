@@ -10,6 +10,7 @@ import { LiveShare } from 'vsls/vscode.js';
 import { PostCommitCommandsProvider, Repository } from './api/api';
 import { GitApiImpl } from './api/api1';
 import { AzdoCredentialStore } from './azdo/credentials';
+import { AzdoFolderRepositoryManager } from './azdo/folderRepositoryManager';
 import { azdoGates } from './azdo/gates';
 import { registerCommands } from './commands';
 import { AuthProvider } from './common/authentication';
@@ -27,7 +28,6 @@ import { EXTENSION_ID, FOCUS_REVIEW_MODE } from './constants';
 import { createExperimentationService, ExperimentationTelemetry } from './experimentationService';
 import { CopilotRemoteAgentManager } from './github/copilotRemoteAgent';
 import { CredentialStore } from './github/credentials';
-import { FolderRepositoryManager } from './github/folderRepositoryManager';
 import { FolderRepositoryManagerResolver } from './github/folderRepositoryManagerResolver';
 import { IssueOverviewPanel } from './github/issueOverview';
 import { OverviewRestorer } from './github/overviewRestorer';
@@ -74,6 +74,7 @@ async function init(
 	context: vscode.ExtensionContext,
 	git: GitApiImpl,
 	credentialStore: CredentialStore,
+	azdoCredentialStore: AzdoCredentialStore,
 	repositories: Repository[],
 	tree: PullRequestsTreeDataProvider,
 	liveshareApiPromise: Promise<LiveShare | undefined>,
@@ -216,7 +217,7 @@ async function init(
 				return;
 			}
 
-			const newFolderManager = new FolderRepositoryManager(reposManager.folderManagers.length, context, repo, telemetry, git, credentialStore, createPrHelper, themeWatcher);
+			const newFolderManager = new AzdoFolderRepositoryManager(reposManager.folderManagers.length, context, repo, telemetry, git, credentialStore, createPrHelper, themeWatcher, azdoCredentialStore);
 			reposManager.insertFolderManager(newFolderManager);
 			const newReviewManager = new ReviewManager(
 				reviewManagerIndex++,
@@ -522,7 +523,7 @@ async function deferredActivate(context: vscode.ExtensionContext, showPRControll
 
 	let folderManagerIndex = 0;
 	const folderManagers = repositories.map(
-		repository => new FolderRepositoryManager(folderManagerIndex++, context, repository, telemetry, apiImpl, credentialStore, createPrHelper, themeWatcher),
+		repository => new AzdoFolderRepositoryManager(folderManagerIndex++, context, repository, telemetry, apiImpl, credentialStore, createPrHelper, themeWatcher, azdoCredentialStore),
 	);
 	context.subscriptions.push(...folderManagers);
 	for (const folderManager of folderManagers) {
@@ -537,7 +538,7 @@ async function deferredActivate(context: vscode.ExtensionContext, showPRControll
 	context.subscriptions.push(vscode.workspace.registerFileSystemProvider(Schemes.GitHubCommit, githubFilesystemProvider, { isReadonly: new vscode.MarkdownString(vscode.l10n.t('GitHub commits cannot be edited')) }));
 	context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(Schemes.CheckRunLog, new CheckRunLogContentProvider(reposManager)));
 
-	await init(context, apiImpl, credentialStore, repositories, prTree, liveshareApiPromise, showPRController, reposManager, createPrHelper, copilotRemoteAgentManager, themeWatcher, prsTreeModel);
+	await init(context, apiImpl, credentialStore, azdoCredentialStore, repositories, prTree, liveshareApiPromise, showPRController, reposManager, createPrHelper, copilotRemoteAgentManager, themeWatcher, prsTreeModel);
 	return apiImpl;
 }
 

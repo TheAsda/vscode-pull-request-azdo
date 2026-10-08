@@ -1,0 +1,154 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import { default as assert } from 'assert';
+import { GitPullRequest, PullRequestStatus } from 'azure-devops-node-api/interfaces/GitInterfaces';
+import { parseAzdoRemoteUrl } from '../../azdo/remote';
+import {
+	absolutizeAvatarUrl,
+	buildPrBrowseUrl,
+	convertAzdoPullRequestToItem,
+	convertBranchRefToBranchName,
+	convertIdentityRefToAccount,
+} from '../../azdo/utils';
+
+const REMOTE = parseAzdoRemoteUrl('https://dev.azure.com/contoso/MyProject/_git/MyRepo')!;
+
+describe('azdo converters', () => {
+	describe('convertBranchRefToBranchName', () => {
+		it('strips refs/heads/', () => {
+			assert.strictEqual(convertBranchRefToBranchName('refs/heads/feature/branch'), 'feature/branch');
+		});
+
+		it('strips refs/tags/ and refs/remotes/', () => {
+			assert.strictEqual(convertBranchRefToBranchName('refs/tags/v1.0'), 'v1.0');
+			assert.strictEqual(convertBranchRefToBranchName('refs/remotes/origin/main'), 'origin/main');
+		});
+
+		it('passes through plain branch names', () => {
+			assert.strictEqual(convertBranchRefToBranchName('main'), 'main');
+		});
+	});
+
+	describe('absolutizeAvatarUrl', () => {
+		it('prefixes relative URLs with the org URL', () => {
+			assert.strictEqual(
+				absolutizeAvatarUrl('/_apis/GraphProfile/MemberAvatars/me', 'https://dev.azure.com/contoso'),
+				'https://dev.azure.com/contoso/_apis/GraphProfile/MemberAvatars/me',
+			);
+		});
+
+		it('keeps absolute URLs and empty values', () => {
+			assert.strictEqual(absolutizeAvatarUrl('https://example.com/a.png', 'https://dev.azure.com/contoso'), 'https://example.com/a.png');
+			assert.strictEqual(absolutizeAvatarUrl(undefined, 'https://dev.azure.com/contoso'), '');
+		});
+	});
+
+	describe('convertIdentityRefToAccount', () => {
+		it('maps uniqueName to login and absolutizes avatar', () => {
+			const account = convertIdentityRefToAccount({
+				id: 'guid-1',
+				displayName: 'Ada Lovelace',
+				uniqueName: 'ada@contoso.com',
+				imageUrl: '/_apis/GraphProfile/MemberAvatars/ada',
+				url: 'https://spscontoso.vssps.visualstudio.com/guid-1',
+			}, 'https://dev.azure.com/contoso');
+			assert.strictEqual(account.login, 'ada@contoso.com');
+			assert.strictEqual(account.id, 'guid-1');
+			assert.strictEqual(account.name, 'Ada Lovelace');
+			assert.strictEqual(account.email, 'ada@contoso.com');
+			assert.strictEqual(account.avatarUrl, 'https://dev.azure.com/contoso/_apis/GraphProfile/MemberAvatars/ada');
+		});
+
+		it('falls back to displayName when uniqueName is missing', () => {
+			const account = convertIdentityRefToAccount({ id: 'guid-2', displayName: 'Build Service' }, 'https://dev.azure.com/contoso');
+			assert.strictEqual(account.login, 'Build Service');
+		});
+	});
+
+	describe('buildPrBrowseUrl', () => {
+		it('builds organization-scoped pull request URL', () => {
+			assert.strictEqual(
+				buildPrBrowseUrl(REMOTE, 123),
+				'https://dev.azure.com/contoso/MyProject/_git/MyRepo/pullrequest/123',
+			);
+		});
+	});
+
+	describe('convertAzdoPullRequestToItem', () => {
+		it('maps an active pull request', () => {
+			const item = convertAzdoPullRequestToItem({
+				pullRequestId: 42,
+				title: 'Add feature',
+				description: 'The body',
+				status: PullRequestStatus.Active,
+				isDraft: true,
+				createdBy: { id: 'guid-1', displayName: 'Ada', uniqueName: 'ada@contoso.com' },
+				creationDate: new Date('2025-01-01T00:00:00Z'),
+				sourceRefName: 'refs/heads/feature/x',
+				targetRefName: 'refs/heads/main',
+				lastMergeSourceCommit: { commitId: 'abc123' },
+				lastMergeTargetCommit: { commitId: 'def456' },
+				repository: { name: 'MyRepo', remoteUrl: 'https://dev.azure.com/contoso/MyProject/_git/MyRepo' },
+			} as GitPullRequest, REMOTE);
+
+			assert.strictEqual(item.number, 42);
+			assert.strictEqual(item.state, 'open');
+			assert.strictEqual(item.merged, false);
+			assert.strictEqual(item.isDraft, true);
+			assert.strictEqual(item.user.login, 'ada@contoso.com');
+			assert.strictEqual(item.head!.ref, 'feature/x');
+			assert.strictEqual(item.head!.sha, 'abc123');
+			assert.strictEqual(item.head!.label, 'MyRepo:feature/x');
+			assert.strictEqual(item.head!.repo.owner, 'contoso');
+			assert.strictEqual(item.base!.ref, 'main');
+			assert.strictEqual(item.url, 'https://dev.azure.com/contoso/MyProject/_git/MyRepo/pullrequest/42');
+			assert.strictEqual(item.isRemoteHeadDeleted, false);
+		});
+
+		it('completed pull requests map to closed + merged', () => {
+			const item = convertAzdoPullRequestToItem({
+				pullRequestId: 43,
+				title: 'Done',
+				status: PullRequestStatus.Completed,
+				creationDate: new Date('2025-01-01T00:00:00Z'),
+				closedDate: new Date('2025-01-02T00:00:00Z'),
+				sourceRefName: 'refs/heads/done',
+				targetRefName: 'refs/heads/main',
+			} as GitPullRequest, REMOTE);
+
+			assert.strictEqual(item.state, 'closed');
+			assert.strictEqual(item.merged, true);
+			assert.strictEqual(item.updatedAt, '2025-01-02T00:00:00.000Z');
+		});
+
+		it('abandoned pull requests map to closed without merged', () => {
+			const item = convertAzdoPullRequestToItem({
+				pullRequestId: 44,
+				title: 'Nope',
+				status: PullRequestStatus.Abandoned,
+				creationDate: new Date('2025-01-01T00:00:00Z'),
+				sourceRefName: 'refs/heads/nope',
+				targetRefName: 'refs/heads/main',
+			} as GitPullRequest, REMOTE);
+
+			assert.strictEqual(item.state, 'closed');
+			assert.strictEqual(item.merged, false);
+		});
+
+		it('missing sourceRefName marks head deleted', () => {
+			const item = convertAzdoPullRequestToItem({
+				pullRequestId: 45,
+				title: 'Deleted',
+				status: PullRequestStatus.Active,
+				creationDate: new Date('2025-01-01T00:00:00Z'),
+				targetRefName: 'refs/heads/main',
+			} as GitPullRequest, REMOTE);
+
+			assert.strictEqual(item.isRemoteHeadDeleted, true);
+			assert.strictEqual(item.head!.ref, '');
+		});
+	});
+});
